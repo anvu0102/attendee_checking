@@ -27,7 +27,7 @@ SCOPES = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googlea
 DATASET_FOLDER = "dataset" 
 CHECKLIST_FILENAME = "checklist.xlsx" 
 CHECKLIST_SESSION_KEY = "attendance_df" 
-DETECTOR_BACKEND = "yolo" #change to opencv, retinaface, mtcnn for comparison
+DETECTOR_BACKEND = "mtcnn" #change to opencv, retinaface, mtcnn for comparison
 
 # ----------------------------------------------------------------------
 #                             TẢI THÔNG TIN TỪ ST.SECRETS
