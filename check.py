@@ -96,7 +96,7 @@ def detect_and_draw_face(image_bytes, cascade):
 def verify_face_against_dataset(target_image_path, dataset_folder):
     """ 
     Sử dụng DeepFace để so sánh ảnh đầu vào (ĐÃ CẮT) với dataset. 
-    Lưu ý: Vì ảnh đã được cắt và lưu, ta đặt enforce_detection=False để DeepFace không cần tìm lại.
+    Trả về: (stt_match, distance, closest_match_path, closest_distance)
     """
     try:
         # DeepFace.find trả về danh sách DataFrame, thường chỉ có 1
@@ -107,33 +107,38 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             distance_metric="cosine",
             enforce_detection=False, 
             detector_backend=DETECTOR_BACKEND 
-            # KHÔNG CẦN CẮT NỮA VÌ ẢNH ĐÃ ĐƯỢC CẮT BÊN NGOÀI
         )
         
+        stt_match = None
+        distance = None
+        closest_match_path = None
+        closest_distance = None
+
         # Kiểm tra nếu có kết quả và DataFrame đầu tiên không rỗng
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
             best_match = df_list[0].iloc[0]
-            identity_path = best_match['identity']
-            print(identity_path)
-            # Lấy STT từ tên file (vd: 1_001.jpg -> 1)
-            stt_match = os.path.splitext(os.path.basename(identity_path))[0].split('_')[0]
-            distance = best_match['ArcFace_cosine'] 
             
-            # Đảm bảo distance là float trước khi trả về
-            if pd.notna(distance):
-                return stt_match, float(distance)
-            else:
-                st.error("❌ DeepFace không trả về độ tương đồng (distance) hợp lệ.")
-                return None, None
+            # Lấy thông tin về ứng viên gần nhất
+            closest_match_path = best_match['identity']
+            
+            if pd.notna(best_match['ArcFace_cosine']):
+                closest_distance = float(best_match['ArcFace_cosine'])
+
+            # Giả định nếu DeepFace.find trả về kết quả (df_list không rỗng), 
+            # thì nó đã vượt qua ngưỡng so sánh (thành công)
+            if closest_distance is not None:
+                stt_match = os.path.splitext(os.path.basename(closest_match_path))[0].split('_')[0]
+                distance = closest_distance
                 
-        return None, None
+        # TRẢ VỀ: (stt_match, distance, closest_match_path, closest_distance)
+        return stt_match, distance, closest_match_path, closest_distance
+
     except Exception as e:
-        # Chỉ in lỗi DeepFace nếu không phải lỗi không phát hiện
         if "Face could not be detected" in str(e):
              st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp. (Kiểm tra chất lượng ảnh)")
         else:
             st.error(f"❌ Lỗi DeepFace: {e}")
-        return None, None
+        return None, None, None, None
 
 
 # BỎ DECORATOR @st.cache_data để buộc tải lại checklist mỗi khi app load
@@ -485,6 +490,11 @@ def main_app(credentials):
         st.info("⬅️ **Vui lòng chọn một Buổi Điểm Danh để tiếp tục.**")
 
     st.markdown("---")
+    
+    # === BỔ SUNG CHECKBOX HIỂN THỊ CHI TIẾT ===
+    show_failure_details = st.checkbox("🔍 **Hiển thị chi tiết so sánh khuôn mặt thất bại**")
+    st.markdown("---")
+    # ==========================================
 
     # 3. Chụp Ảnh và Xử Lý
     # --- THAY ĐỔI: Chỉ hiển thị camera input nếu đã chọn buổi ---
@@ -514,6 +524,8 @@ def main_app(credentials):
                 stt_match = None
                 distance = None
                 TEMP_IMAGE_PATH = None
+                closest_match_path = None
+                closest_distance = None
                 
                 # Kiểm tra chỉ có 1 khuôn mặt và tiến hành cắt
                 if face_detected and num_faces == 1:
@@ -538,13 +550,9 @@ def main_app(credentials):
                     cv2.imwrite(TEMP_IMAGE_PATH, cropped_face_bgr)
                     
                     # Thực hiện so khớp DeepFace trên ảnh đã cắt
-                    stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
+                    stt_match, distance, closest_match_path, closest_distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
                 
                 # --- End If face_detected and num_faces == 1 ---
-                
-            # Xóa file tạm
-            if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
-                os.remove(TEMP_IMAGE_PATH)
                 
             # HIỂN THỊ KẾT QUẢ TRONG PLACEHOLDER
             with result_placeholder.container():
@@ -554,7 +562,7 @@ def main_app(credentials):
                 st.markdown("---")
                 st.subheader("💡 Kết quả Điểm danh")
                 
-                if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
+                if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị (MATCH THÀNH CÔNG)
                     st.balloons()
                     st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
                     st.markdown(f"""
@@ -563,26 +571,44 @@ def main_app(credentials):
                     """)
                     
                     # Cập nhật checklist VÀ LƯU ẢNH GỐC THÀNH CÔNG
-                    # TRUYỀN BYTES CỦA ẢNH GỐC
                     updated = update_checklist_and_save_new_data(stt_match, selected_session, image_bytes_original, credentials)
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
-                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
+                    # Xóa file tạm trước khi rerun
+                    if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
+                        os.remove(TEMP_IMAGE_PATH)
+                        
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
                     time.sleep(5) # Đợi 5 giây
-                    # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
                     st.rerun() # Buộc rerun
                     # --------------------------------------
                     return 
                     
-                elif face_detected and num_faces == 1:
+                elif face_detected and num_faces == 1: # KHÔNG KHỚP (BUT FACE FOUND)
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
-                    # Lưu ảnh gốc (truyền image_bytes_original)
+                    
+                    # --- BỔ SUNG: HIỂN THỊ KẾT QUẢ SO SÁNH KHÔNG KHỚP (CHỈ KHI CHECKBOX ĐƯỢC CHỌN) ---
+                    if show_failure_details and closest_match_path and closest_distance is not None:
+                        st.subheader("🔍 Ứng viên gần nhất")
+                        col_input, col_match = st.columns(2)
+                        
+                        # 1. Hiển thị ảnh đầu vào (ảnh đã crop, sử dụng TEMP_IMAGE_PATH)
+                        with col_input:
+                            st.image(TEMP_IMAGE_PATH, caption="Ảnh đầu vào (Đã cắt)", use_column_width=True)
+                            
+                        # 2. Hiển thị ảnh ứng viên gần nhất từ dataset
+                        with col_match:
+                            st.image(closest_match_path, caption=f"Ứng viên Dataset ({os.path.basename(closest_match_path)})", use_column_width=True)
+                            
+                        st.markdown(f"**Độ tương đồng (Khoảng cách Cosine):** `{closest_distance:.4f}`")
+                    # ---------------------------------------------------------------------------------
+
+                    # Lưu ảnh gốc
                     update_checklist_and_save_new_data(None, selected_session, image_bytes_original, credentials) 
                     
                 elif face_detected and num_faces > 1:
@@ -592,6 +618,9 @@ def main_app(credentials):
                     st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
                     st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
                     
+            # Xóa file tạm sau khi hiển thị/xử lý hoàn tất
+            if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
+                os.remove(TEMP_IMAGE_PATH)
             # --- End result_placeholder.container() ---
             
     # 4. HIỂN THỊ TRẠNG THÁI CHECKLIST BAN ĐẦU HOẶC SAU KHI RERUN
