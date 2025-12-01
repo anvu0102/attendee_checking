@@ -489,12 +489,14 @@ def main_app(credentials):
     if not attendance_cols:
          st.error("Không tìm thấy cột 'Buổi' trong checklist. Vui lòng kiểm tra lại cấu trúc file XLSX.")
          return
+
+    st.info("⬅️ **Vui lòng chọn một Buổi Điểm Danh để tiếp tục.**")
     
     # --- THAY ĐỔI: Thêm một tùy chọn mặc định không phải là buổi học ---
     display_options = ["--- Vui lòng chọn buổi ---"] + attendance_cols
     
     selected_session_display = st.selectbox(
-        "Chọn Buổi Điểm Danh", 
+        "", 
         display_options, 
         index=0, # Mặc định chọn tùy chọn đầu tiên ("--- Vui lòng chọn buổi ---")
         help="Chọn buổi tương ứng để cập nhật cột điểm danh trong checklist."
@@ -502,11 +504,6 @@ def main_app(credentials):
     
     # Xác định buổi học thực sự được chọn
     selected_session = selected_session_display if selected_session_display != "--- Vui lòng chọn buổi ---" else None
-    
-    if not selected_session:
-        # st.success(f"Đang điểm danh cho: **{selected_session}**")
-    # else:
-        st.info("⬅️ **Vui lòng chọn một Buổi Điểm Danh để tiếp tục.**")
 
     # --- BỔ SUNG: CHECKBOX HIỂN THỊ ẢNH DEBUG ---
     show_debug_images = st.checkbox(
