@@ -3,7 +3,7 @@ opencv-python
 numpy
 pillow
 requests
-deepface==0.0.96  # Đã điều chỉnh
-tensorflow==2.15.0
-keras==2.15.0
-protobuf==3.20.3 # Vẫn giữ lại để xử lý xung đột TF
+deepface==0.0.96  # Phiên bản DeepFace mới nhất đã xác nhận
+tensorflow==2.11.0 # Phiên bản đầu tiên hỗ trợ chính thức Python 3.10
+keras==2.11.0
+protobuf==3.20.3 # Thêm để tránh xung đột phụ thuộc thường gặp
