@@ -585,7 +585,7 @@ def main_app(credentials):
             # HIỂN THỊ KẾT QUẢ TRONG PLACEHOLDER
             with result_placeholder.container():
                 st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
-                st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_container_width=True)
+                st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", width='stretch')
 
                 st.markdown("---")
                 st.subheader("💡 Kết quả Điểm danh")
@@ -604,12 +604,12 @@ def main_app(credentials):
                             # Hiển thị ảnh đã cắt (đã lưu tạm thời)
                             # TEMP_IMAGE_PATH chỉ tồn tại nếu phát hiện 1 khuôn mặt
                             if TEMP_IMAGE_PATH:
-                                st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_container_width=True)
+                                st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", width='stretch')
                             
                         with col2:
                             if dataset_image_path:
                                 # Hiển thị ảnh dataset trùng khớp
-                                st.image(dataset_image_path, caption=f"Dataset (STT: {stt_match})", use_container_width=True)
+                                st.image(dataset_image_path, caption=f"Dataset (STT: {stt_match})", width='stretch')
                             else:
                                 st.warning("Không tìm thấy ảnh dataset để hiển thị.")
                     # ----------------------------------------------------------------------------
@@ -649,7 +649,7 @@ def main_app(credentials):
                     if show_debug_images: # <<< KIỂM TRA CHECKBOX
                         # Ảnh đã cắt được tạo và lưu ở TEMP_IMAGE_PATH
                         if TEMP_IMAGE_PATH:
-                            st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_container_width=False)
+                            st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", width='content')
                     # ----------------------------------------------------
                     
                     # Lưu ảnh gốc (truyền image_bytes_original)
