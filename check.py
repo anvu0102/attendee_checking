@@ -6,7 +6,7 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-import io
+import io # Import io cho việc xử lý file trong bộ nhớ
 import os
 import tempfile
 import pandas as pd
@@ -178,47 +178,7 @@ def get_next_new_data_stt(_credentials):
     # Trả về số thứ tự tiếp theo
     return max_stt + 1
 
-# --- HÀM MỚI: GHI NGƯỢC (WRITE-BACK) CHECKLIST LÊN DRIVE ---
-def write_back_checklist_to_gdrive(df, file_id, filename, credentials):
-    """
-    Ghi ngược DataFrame đã cập nhật vào file XLSX hiện có trên Google Drive.
-    Sử dụng files().update() với MediaFileUpload.
-    """
-    st.info("🔄 Đang ghi ngược (Write-Back) dữ liệu điểm danh lên Google Drive...")
-    
-    # 1. Lưu DataFrame vào file tạm XLSX
-    temp_excel_file = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
-    temp_excel_path = temp_excel_file.name
-    temp_excel_file.close()
-
-    try:
-        # Ghi DataFrame vào file Excel tạm thời
-        # Lưu ý: index=False để không thêm cột chỉ mục (index) vào file Excel
-        df.to_excel(temp_excel_path, index=False)
-        
-        # 2. Kết nối tới Drive API
-        drive_service = build('drive', 'v3', credentials=credentials)
-
-        # 3. Tạo MediaFileUpload object
-        media = MediaFileUpload(
-            temp_excel_path, 
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-
-        # 4. Thực hiện lệnh Update (Ghi đè file có sẵn)
-        file = drive_service.files().update(
-            fileId=file_id,
-            media_body=media,
-        ).execute()
-
-        st.success(f"💾 **Ghi ngược thành công!** File '{filename}' trên Drive đã được cập nhật.")
-
-    except Exception as e:
-        st.error(f"❌ Lỗi khi ghi ngược file Drive ID {file_id}: {e}")
-    finally:
-        # Xóa file tạm
-        if os.path.exists(temp_excel_path):
-            os.remove(temp_excel_path)
+# *** ĐÃ XÓA HÀM write_back_checklist_to_gdrive ***
 
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
@@ -247,15 +207,8 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
                     
                     st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
                     
-                    # --- BỔ SUNG CHỨC NĂNG GHI NGƯỢC (WRITE-BACK) ---
-                    # Gọi hàm ghi ngược lên Drive
-                    write_back_checklist_to_gdrive(
-                        df=df, 
-                        file_id=GDRIVE_CHECKLIST_ID, 
-                        filename=CHECKLIST_FILENAME, 
-                        credentials=_credentials
-                    )
-                    # ---------------------------------------------------
+                    # *** ĐÃ XÓA LOGIC GỌI HÀM GHI NGƯỢC LÊN DRIVE ***
+                    
                 else:
                     st.info(f"Người có STT **{df.loc[row_index[0], stt_col]}** đã được điểm danh trong **{session_name}**.")
                 
@@ -380,7 +333,7 @@ def main_app(credentials):
         st.markdown("---")
         st.subheader("💡 Kết quả Điểm danh")
 
-        #Test 
+        #Test (Giữ lại đoạn test này để đảm bảo logic chạy)
         stt_match = "2"
         distance = 0.01
         
@@ -391,7 +344,7 @@ def main_app(credentials):
             * **STT trùng khớp:** **{stt_match}**
             * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
             """)
-            # Cập nhật checklist (truyền credentials) - Trong hàm này đã có thêm logic Write-Back
+            # Cập nhật checklist (KHÔNG Ghi ngược lên Drive, chỉ cập nhật session state)
             update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
             
         elif face_detected and num_faces == 1:
@@ -409,4 +362,22 @@ def main_app(credentials):
     st.markdown("---")
     st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session)")
     if CHECKLIST_SESSION_KEY in st.session_state:
-        st.dataframe(st.session_state[CHECKLIST_SESSION_KEY])
+        current_df = st.session_state[CHECKLIST_SESSION_KEY]
+        st.dataframe(current_df)
+        
+        # --- BỔ SUNG NÚT TẢI VỀ FILE EXCEL ---
+        # 1. Tạo file Excel trong bộ nhớ (sử dụng io.BytesIO)
+        output = io.BytesIO()
+        # Lưu DataFrame vào buffer, bỏ index
+        current_df.to_excel(output, index=False, sheet_name='Checklist_Cap_Nhat')
+        excel_data = output.getvalue()
+        
+        # 2. Hiển thị nút tải về
+        st.download_button(
+            label="⬇️ Tải file Excel Checklist đã cập nhật",
+            data=excel_data,
+            file_name="Checklist_DiemDanh_CapNhat.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Tải về file Excel (XLSX) chứa dữ liệu điểm danh mới nhất trong phiên làm việc hiện tại."
+        )
+        # --------------------------------------
