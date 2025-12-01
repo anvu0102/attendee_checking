@@ -7,7 +7,8 @@ import requests
 import os
 import zipfile
 from deepface import DeepFace
-import time # Thêm thư viện để mô phỏng độ trễ tải
+import tempfile # Thư viện mới để tạo file tạm duy nhất
+import time 
 
 # --- 1. Thiết lập trang Streamlit ---
 st.set_page_config(
@@ -22,7 +23,6 @@ st.caption("Dataset được tải từ Google Drive công khai qua file ZIP.")
 # --- 2. Cấu hình & Hằng số ---
 HAAR_CASCADE_URL = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
 CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
-TEMP_IMAGE_PATH = "captured_face.jpg" # Đường dẫn tạm để lưu ảnh chụp
 
 # Vui lòng thay thế chuỗi này bằng File ID của file ZIP dataset công khai của bạn.
 # VD: GDRIVE_FILE_ID = "1a2b3c4d5e6f7g8h9i0j"
@@ -136,11 +136,9 @@ def detect_and_draw_face(image_bytes, cascade):
 
 
 # --- 4. Hàm DeepFace Recognition (Sử dụng detector_backend="opencv") ---
-# @st.cache_data không dùng được cho DeepFace.find() vì nó chỉnh sửa folder dataset
 def verify_face_against_dataset(target_image_path, dataset_folder):
     """
     Sử dụng DeepFace để so sánh ảnh đầu vào với dataset.
-    Dùng detector_backend="opencv" để tránh lỗi import TensorFlow.
     """
     try:
         # THAY ĐỔI QUAN TRỌNG: Sử dụng detector_backend="opencv"
@@ -156,7 +154,8 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
             best_match = df_list[0].iloc[0]
             identity_path = best_match['identity']
-            person_name = os.path.splitext(os.path.basename(identity_path))[0]
+            # Lấy tên người từ tên file (loại bỏ phần mở rộng)
+            person_name = os.path.splitext(os.path.basename(identity_path))[0] 
             distance = best_match['ArcFace_cosine'] 
             return person_name, distance
         
@@ -165,7 +164,7 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
     except ValueError as e:
         if "Face could not be detected" in str(e):
              # DeepFace.find() sẽ ném ValueError nếu không tìm thấy khuôn mặt
-             st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp. {e}")
+             st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp. Vui lòng thử lại ảnh rõ ràng hơn.")
         else:
             st.error(f"❌ Lỗi DeepFace: {e}")
         return None, None
@@ -199,17 +198,22 @@ if captured_file is not None:
         
         # Mở spinner trong lúc xử lý
         with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
+            
             # 1. Phát hiện khuôn mặt và vẽ khung (Dùng cho hiển thị)
             processed_image_np, face_detected, num_faces, image_bgr = detect_and_draw_face(image_bytes, face_cascade)
             processed_image = Image.fromarray(processed_image_np)
             
-            # 2. Lưu ảnh tạm thời (DeepFace cần đường dẫn file)
+            # 2. LƯU ẢNH TẠM THỜI DUY NHẤT (QUAN TRỌNG: Dùng tempfile)
+            temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+            TEMP_IMAGE_PATH = temp_file.name
+            temp_file.close() # Đóng file handle để cv2.imwrite có thể ghi vào
+            
             cv2.imwrite(TEMP_IMAGE_PATH, image_bgr)
             
             # 3. Thực hiện so khớp DeepFace
             match_name, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
 
-        # Xóa file tạm sau khi đã xử lý
+        # Xóa file tạm sau khi đã xử lý xong
         if os.path.exists(TEMP_IMAGE_PATH):
             os.remove(TEMP_IMAGE_PATH)
             
