@@ -330,7 +330,6 @@ def main_app(credentials):
         # Cột 2 ban đầu hiển thị hướng dẫn
         with col2:
             st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
-            st.info("Ảnh kết quả (có khung nhận diện) sẽ hiển thị ở đây sau khi bạn chụp ảnh.")
 
         if captured_file is not None:
             
