@@ -10,6 +10,13 @@ from deepface import DeepFace
 import tempfile
 import time 
 import pandas as pd
+# --- CẦN THÊM CÁC THƯ VIỆN SAU ---
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+# ---------------------------------
 
 # --- 1. Thiết lập trang Streamlit ---
 st.set_page_config(
@@ -25,14 +32,18 @@ st.caption("Sử dụng ID Drive và OAuth Credentials từ st.secrets.")
 HAAR_CASCADE_URL = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
 CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
 
+# PHẠM VI (SCOPES) CHO GOOGLE DRIVE API
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file']
+
 # TẢI CÁC THÔNG TIN TỪ ST.SECRETS
-# Đảm bảo các khóa này đã được định nghĩa trong file secrets.toml
 try:
     GDRIVE_CLIENT_ID = st.secrets["GDRIVE_CLIENT_ID"]
     GDRIVE_CLIENT_SECRET = st.secrets["GDRIVE_CLIENT_SECRET"]
     GDRIVE_DATASET_FOLDER_ID = st.secrets["GDRIVE_DATASET_ID"] 
     GDRIVE_CHECKLIST_ID = st.secrets["GDRIVE_CHECKLIST_ID"]
     GDRIVE_NEW_DATA_FOLDER_ID = st.secrets["GDRIVE_NEW_DATA_ID"]
+    # Tên khóa để lưu trữ credential trong session state
+    CREDENTIALS_SESSION_KEY = "gdrive_credentials"
 except KeyError as e:
     st.error(f"❌ Lỗi: Không tìm thấy khóa {e} trong st.secrets.")
     st.info("Vui lòng đảm bảo bạn đã định nghĩa tất cả các khóa (CLIENT_ID, CLIENT_SECRET, DATASET_ID, CHECKLIST_ID, NEW_DATA_ID) trong file .streamlit/secrets.toml hoặc trong giao diện Secrets của Streamlit Cloud.")
@@ -45,87 +56,177 @@ CHECKLIST_SESSION_KEY = "attendance_df"
 DETECTOR_BACKEND = "opencv"
 
 
-# --- Hàm Giả Lập Xác Thực Token ---
-def get_valid_access_token_mock(client_id, client_secret):
+# --- 1. HÀM XÁC THỰC OAUTH (REAL) ---
+@st.cache_resource(show_spinner="Đang thực hiện quy trình OAuth để lấy Access Token...")
+def get_valid_access_token_real(client_id, client_secret):
     """ 
-    [MOCK] Giả lập quy trình OAuth 2.0 để lấy Access Token.
-    Trong thực tế, hàm này sẽ sử dụng Client ID/Secret để yêu cầu và làm mới token.
+    THỰC TẾ: Thực hiện luồng OAuth 2.0 để lấy và làm mới token (yêu cầu file client_secrets.json).
+    CHÚ Ý: Đây là luồng OAuth Desktop/Installed App. Để dùng trên Streamlit Cloud,
+    cần thay thế bằng một luồng web app hoặc sử dụng các khóa đã được xác thực trước.
     """
-    if client_id.startswith("YOUR_OAUTH"):
-        st.error("❌ Lỗi cấu hình: Client ID vẫn là placeholder. Không thể giả lập token.")
+    if "token" not in st.session_state:
+        st.session_state.token = None
+
+    if st.session_state.token and st.session_state.token.expired and st.session_state.token.refresh_token:
+        # Nếu Token hết hạn và có Refresh Token, làm mới
+        st.info("Đang làm mới Access Token...")
+        st.session_state.token.refresh(Request())
+        st.success("✅ Đã làm mới Access Token.")
+        return st.session_state.token
+    elif st.session_state.token and not st.session_state.token.expired:
+        # Nếu Token còn hạn
+        st.success("✅ Access Token còn hiệu lực.")
+        return st.session_state.token
+    
+    # ⚠️ Đây là phần quan trọng: Luồng OAuth Tương tác (chỉ chạy tốt trên môi trường local)
+    try:
+        # Tạo file credentials.json ảo từ st.secrets để thực hiện OAuth flow
+        CRED_JSON = {
+            "installed": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"]
+            }
+        }
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_creds_file:
+            import json
+            json.dump(CRED_JSON, temp_creds_file)
+            CREDENTIALS_FILE = temp_creds_file.name
+        
+        flow = InstalledAppFlow.from_client_secrets_file(
+            CREDENTIALS_FILE, SCOPES
+        )
+        
+        # Chạy luồng OAuth. Trên local sẽ mở trình duyệt, trên Cloud sẽ cần xử lý khác
+        st.warning("Vui lòng hoàn thành quá trình xác thực Google OAuth trong cửa sổ mới/terminal.")
+        creds = flow.run_local_server(port=0) 
+        st.session_state.token = creds
+        
+        os.remove(CREDENTIALS_FILE)
+        st.success("✅ Xác thực Google thành công.")
+        return creds
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi xác thực OAuth: {e}")
+        st.error("Vui lòng kiểm tra Client ID/Secret và đảm bảo ứng dụng của bạn đã được đăng ký.")
         return None
-    
-    st.success("✅ Giả lập: Đã sử dụng Client ID/Secret để tạo Access Token (Token thực tế cần luồng OAuth).")
-    # Giả lập trả về một Token
-    return "MOCK_ACCESS_TOKEN_" + client_id[:5] 
 
-
-# --- Hàm tải file đơn lẻ từ Google Drive (Dùng cho Checklist XLSX) ---
-def download_file_from_gdrive(file_id, output_filename, access_token=None):
-    """ Tải file từ Google Drive. Cần Access Token cho các file không công khai. """
-    DOWNLOAD_URL = f"https://drive.google.com/uc?export=download&id={file_id}"
-    
-    headers = {}
-    if access_token:
-        # Nếu dùng token, phải thêm vào Header
-        headers = {'Authorization': f'Bearer {access_token}'} 
+# --- 2. HÀM TẢI FILE ĐƠN LẺ TỪ G-DRIVE (CẬP NHẬT) ---
+# Tải checklist XLSX
+def download_file_from_gdrive(file_id, output_filename, credentials):
+    """ Tải file từ Google Drive dùng Google Drive API. """
     
     try:
-        response = requests.get(DOWNLOAD_URL, stream=True, headers=headers)
-        response.raise_for_status() 
+        service = build('drive', 'v3', credentials=credentials)
+        request = service.files().get_media(fileId=file_id)
         
-        if "confirm" in response.headers.get("Content-Disposition", ""):
-            params = {'id': file_id, 'confirm': 't'}
-            response = requests.get(DOWNLOAD_URL, params=params, stream=True, headers=headers)
-            response.raise_for_status()
-
-        with open(output_filename, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+        with open(output_filename, 'wb') as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            with st.spinner(f"Đang tải file {output_filename}..."):
+                while done is False:
+                    status, done = downloader.next_chunk()
+        st.info(f"Đã tải thành công file: {output_filename}")
         return True
     except Exception as e:
         st.error(f"❌ Lỗi khi tải file {output_filename} từ Drive: {e}")
-        st.warning("Gợi ý: Kiểm tra ID file, quyền chia sẻ và Access Token.")
+        st.warning("Gợi ý: Kiểm tra ID file và quyền truy cập của tài khoản đã xác thực.")
         return False
 
 
-# --- MOCK: Tải Folder Dataset (Mô phỏng) ---
-@st.cache_resource(show_spinner="Đang mô phỏng tải Dataset FOLDER từ Google Drive...")
-def download_dataset_folder_mock(folder_id, target_folder, access_token):
-    """ MOCK: Mô phỏng tải toàn bộ nội dung folder Drive vào thư mục local, sử dụng token. """
-    st.warning("⚠️ CHÚ Ý: Hàm này chỉ MOCK (giả lập). Cần Google Drive API thực tế và Access Token hợp lệ.")
-    st.info(f"Giả lập: Sử dụng Access Token để truy cập Folder ID: {folder_id}.")
-
+# --- 3. HÀM TẢI DATASET FOLDER (REAL) ---
+@st.cache_resource(show_spinner="Đang tải Dataset Folder từ Google Drive...")
+def download_dataset_folder_real(folder_id, target_folder, credentials):
+    """ THỰC TẾ: Tải toàn bộ nội dung folder Drive vào thư mục local. """
     if not os.path.exists(target_folder):
         os.makedirs(target_folder)
-        try:
-            # Tạo cấu trúc file giả định để DeepFace có thể chạy
-            temp_img1 = np.zeros((100, 100, 3), dtype=np.uint8)
-            temp_img2 = np.zeros((100, 100, 3), dtype=np.uint8)
-            cv2.imwrite(os.path.join(target_folder, "1.jpg"), temp_img1) 
-            cv2.imwrite(os.path.join(target_folder, "2.jpg"), temp_img2) 
-            st.success(f"Mô phỏng: Đã tạo thư mục '{target_folder}' với các file mẫu. Sẵn sàng cho DeepFace.")
-            return True
-        except Exception as e:
-            st.error(f"Lỗi khi tạo file mock: {e}")
+        
+    try:
+        service = build('drive', 'v3', credentials=credentials)
+        # Truy vấn tất cả file trong folder
+        query = f"'{folder_id}' in parents and trashed = false"
+        results = service.files().list(
+            q=query, 
+            pageSize=1000,
+            fields="nextPageToken, files(id, name)"
+        ).execute()
+        items = results.get('files', [])
+
+        if not items:
+            st.warning(f"Folder ID: {folder_id} trống rỗng. Không có dataset.")
             return False
 
-    deepface_cache = os.path.join(target_folder, 'representations_arcface.pkl')
-    if os.path.isdir(target_folder) and (len(os.listdir(target_folder)) > 2 or os.path.exists(deepface_cache)):
-         st.success(f"Dataset folder đã sẵn sàng tại '{target_folder}'. Bỏ qua tải xuống.")
-         return True
+        st.info(f"Tìm thấy {len(items)} file trong dataset. Đang tải xuống...")
+        
+        for item in items:
+            file_id = item['id']
+            file_name = item['name']
+            output_path = os.path.join(target_folder, file_name)
+            
+            # Tải từng file
+            request = service.files().get_media(fileId=file_id)
+            with open(output_path, 'wb') as fh:
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while done is False:
+                    status, done = downloader.next_chunk()
+
+        st.success(f"✅ Đã tải thành công {len(items)} file ảnh dataset vào thư mục '{target_folder}'.")
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi khi tải Dataset Folder từ Drive: {e}")
+        return False
+
+# --- 4. HÀM UPLOAD FILE MỚI (REAL) ---
+def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, credentials):
+    """
+    Tải file lên Google Drive bằng Google Drive API, cần Credential thật.
+    """
+    if credentials is None:
+        st.error("❌ Lỗi Auth: Không thể upload vì không có Credential hợp lệ.")
+        return False
     
-    return False
+    try:
+        service = build('drive', 'v3', credentials=credentials)
+        
+        # Metadata của file
+        file_metadata = {
+            'name': drive_filename,
+            'parents': [drive_folder_id] 
+        }
+        
+        # Media to upload
+        from googleapiclient.http import MediaFileUpload
+        media = MediaFileUpload(file_path, mimetype='image/jpeg', resumable=True)
+        
+        with st.spinner(f"Đang tải file '{drive_filename}' lên Drive..."):
+            file = service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            ).execute()
 
+        st.success(f"✅ **Upload Thành Công:** File '{drive_filename}' đã được lưu với ID: `{file.get('id')}`.")
+        st.info(f"Đã lưu vào Drive Folder ID: **{drive_folder_id}**.")
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi khi Upload file mới lên Drive: {e}")
+        return False
 
+# --- HÀM TẢI CHECKLIST (CẬP NHẬT) ---
 @st.cache_data(show_spinner="Đang tải và xử lý Checklist (XLSX) từ Google Drive...")
-def load_checklist(file_id, filename, access_token):
+def load_checklist(file_id, filename, credentials):
     """ Tải checklist XLSX và đọc thành DataFrame. """
     
     if not os.path.exists(filename):
-        # Truyền token vào hàm download
-        download_file_from_gdrive(file_id, filename, access_token)
+        # Truyền credentials vào hàm download
+        download_file_from_gdrive(file_id, filename, credentials)
         
     if os.path.exists(filename):
         try:
@@ -137,6 +238,7 @@ def load_checklist(file_id, filename, access_token):
             return None
     return None
 
+# --- TẢI CASCADE VÀ CÁC HÀM KHÁC (GIỮ NGUYÊN) ---
 @st.cache_resource
 def load_face_cascade(url, filename):
     """ Tải Haar Cascade cho OpenCV. """
@@ -156,7 +258,7 @@ face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
 # --- 3. Hàm Phát hiện Khuôn mặt (Giữ nguyên) ---
 def detect_and_draw_face(image_bytes, cascade):
-    """ Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh. """
+    # ... (code giữ nguyên) ...
     image_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     image_np = np.array(image_pil)
     image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
@@ -175,7 +277,7 @@ def detect_and_draw_face(image_bytes, cascade):
 
 # --- 4. Hàm DeepFace Recognition (Giữ nguyên) ---
 def verify_face_against_dataset(target_image_path, dataset_folder):
-    """ Sử dụng DeepFace để so sánh ảnh đầu vào với dataset. """
+    # ... (code giữ nguyên) ...
     try:
         df_list = DeepFace.find(
             img_path=target_image_path, 
@@ -199,23 +301,9 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             st.error(f"❌ Lỗi DeepFace: {e}")
         return None, None
 
-# --- 5. Hàm MOCK UPLOAD lên Google Drive ---
-def upload_to_gdrive_mock(file_path, drive_folder_id, drive_filename, access_token):
-    """
-    [MOCK/PLACEHOLDER] Hàm giả định việc tải file lên Google Drive, sử dụng token.
-    """
-    if access_token is None:
-        st.error("❌ Lỗi Auth: Không thể upload vì không có Access Token hợp lệ.")
-        return False
-    
-    st.success(f"✅ **Mô phỏng Upload:** Tải file '{drive_filename}' thành công.")
-    st.info(f"Đã giả lập lưu vào Drive Folder ID: **{drive_folder_id}** bằng Access Token.")
-    
-    return True
+# --- 6. Logic Ghi Dữ Liệu và Lưu Ảnh Mới (CẬP NHẬT) ---
 
-# --- 6. Logic Ghi Dữ Liệu và Lưu Ảnh Mới ---
-
-def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, access_token):
+def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, credentials):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
     """
@@ -238,7 +326,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, acc
                 st.session_state[CHECKLIST_SESSION_KEY] = df 
                 
                 st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
-                st.info(f"⚠️ **Mô phỏng:** DataFrame này cần được ghi trở lại file XLSX Drive ID: **{GDRIVE_CHECKLIST_ID}** bằng Access Token.")
+                st.info(f"⚠️ **Cần thêm chức năng ghi ngược (Write-Back) DataFrame này lên file XLSX Drive ID: {GDRIVE_CHECKLIST_ID}**.")
                 
             else:
                 st.warning(f"⚠️ Không tìm thấy STT **{stt_match_str}** trong checklist để cập nhật.")
@@ -265,8 +353,8 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, acc
             image_to_save = Image.open(io.BytesIO(image_bytes)).convert('RGB')
             image_to_save.save(TEMP_UPLOAD_PATH, format='JPEG')
             
-            # 2. Gọi hàm Upload Drive (MOCK) và truyền token
-            upload_to_gdrive_mock(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, access_token)
+            # 2. Gọi hàm Upload Drive (REAL)
+            upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, credentials)
 
         except Exception as e:
              st.error(f"❌ Lỗi khi tạo file tạm hoặc gọi hàm upload: {e}")
@@ -276,19 +364,21 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, acc
 
 
 # --- 7. Giao diện và Luồng Ứng dụng ---
-# LẤY TOKEN ĐẦU TIÊN
-ACCESS_TOKEN = get_valid_access_token_mock(GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET)
 
-if not ACCESS_TOKEN:
-    st.error("❌ Không thể tiếp tục do không lấy được Access Token hợp lệ từ quy trình OAuth giả lập.")
+# LẤY CREDENTIALS ĐẦU TIÊN
+# Đây là nơi hệ thống sẽ cố gắng thực hiện luồng OAuth và lưu vào st.session_state.token
+CREDENTIALS = get_valid_access_token_real(GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET)
+
+if not CREDENTIALS:
+    st.error("❌ Không thể tiếp tục do không lấy được Credential hợp lệ.")
     st.stop()
 
 
 # 7.1 KHỞI TẠO VÀ TẢI DATASET & CHECKLIST
-# Tải Folder Dataset (MOCK)
-dataset_ready = download_dataset_folder_mock(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, ACCESS_TOKEN) 
+# Tải Folder Dataset (REAL)
+dataset_ready = download_dataset_folder_real(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, CREDENTIALS) 
 # Tải Checklist (XLSX)
-checklist_df = load_checklist(GDRIVE_CHECKLIST_ID, CHECKLIST_FILENAME, ACCESS_TOKEN)
+checklist_df = load_checklist(GDRIVE_CHECKLIST_ID, CHECKLIST_FILENAME, CREDENTIALS)
 
 if checklist_df is not None:
     st.session_state[CHECKLIST_SESSION_KEY] = checklist_df
@@ -296,7 +386,7 @@ if checklist_df is not None:
 st.markdown("---")
 
 if not dataset_ready:
-     st.warning("⚠️ Lỗi mô phỏng tải Dataset Folder. Vui lòng kiểm tra ID Drive Folder và quyền truy cập.")
+     st.warning("⚠️ Lỗi tải Dataset Folder. Vui lòng kiểm tra ID Drive Folder và quyền truy cập.")
      st.stop()
      
 if checklist_df is None:
@@ -363,13 +453,13 @@ if captured_file is not None:
         * **STT trùng khớp:** **{stt_match}**
         * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
         """)
-        # Cập nhật checklist (truyền token)
-        update_checklist_and_save_new_data(stt_match, selected_session, None, ACCESS_TOKEN)
+        # Cập nhật checklist (truyền credentials)
+        update_checklist_and_save_new_data(stt_match, selected_session, None, CREDENTIALS)
         
     elif face_detected and num_faces == 1:
         st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
-        # Lưu ảnh mới (truyền image_bytes và token)
-        update_checklist_and_save_new_data(None, selected_session, image_bytes, ACCESS_TOKEN) 
+        # Lưu ảnh mới (truyền image_bytes và credentials)
+        update_checklist_and_save_new_data(None, selected_session, image_bytes, CREDENTIALS) 
         
     elif face_detected and num_faces > 1:
         st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
