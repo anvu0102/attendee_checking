@@ -488,7 +488,7 @@ def main_app(credentials):
     if selected_session:
         
         # TẠO CỘT MỚI: [Tỉ lệ 1, Tỉ lệ 2] => Camera chiếm 1/3 chiều rộng
-        col_camera, col_spacer = st.columns([4, 1])
+        col_camera, col_spacer = st.columns([10, 1])
         
         with col_camera:
             # ĐẶT CAMERA INPUT VÀO CỘT CÓ KÍCH THƯỚC GIỚI HẠN
