@@ -35,7 +35,7 @@ from config import (
 
 
 # ----------------------------------------------------------------------
-#                             CÁC HÀM XỬ LÝ
+#                             CÁC HÀM XỬ LÝ (GIỮ NGUYÊN)
 # ----------------------------------------------------------------------
 
 @st.cache_resource(show_spinner="Đang tải Haar Cascade...")
@@ -64,8 +64,6 @@ def load_face_cascade(url, filename):
 # Load cascade ngay khi file được import
 face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
-
-# BỎ HÀM detect_and_draw_face CŨ VÌ LOGIC ĐƯỢC CHUYỂN VÀO CLASS FaceDetectionProcessor
 
 def verify_face_against_dataset(target_image_path, dataset_folder):
     """ 
@@ -352,27 +350,43 @@ class FaceDetectionProcessor(VideoProcessorBase):
         if self.face_cascade is not None:
             faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
 
-        # --- LOGIC TỰ ĐỘNG CHỤP VÀ LƯU VÀO SESSION STATE ---
+        # --- LOGIC TỰ ĐỘNG CHỤP VÀ TẠM DỪNG XỬ LÝ KHUNG HÌNH MỚI ---
         # Kiểm tra nếu chưa có ảnh nào đang chờ xử lý và có đúng 1 khuôn mặt
-        if len(faces) == 1 and st.session_state.get('processing_frame', False) == False:
+        # CHỈ XỬ LÝ TIẾP TỤC nếu processing_frame == False (hoặc không tồn tại)
+        if st.session_state.get('processing_frame', False) == False:
             
-            # Lưu ảnh gốc (bgr) và tọa độ khuôn mặt vào Session State
-            st.session_state['captured_frame'] = img.copy() 
-            st.session_state['face_coords'] = faces[0]
-            st.session_state['processing_frame'] = True # Đánh dấu đang chờ xử lý
+            if len(faces) == 1:
+                
+                # Lưu ảnh gốc (bgr) và tọa độ khuôn mặt vào Session State
+                st.session_state['captured_frame'] = img.copy() 
+                st.session_state['face_coords'] = faces[0]
+                # ĐẶT CỜ PROCESSING_FRAME THÀNH TRUE: DỪNG XỬ LÝ KHUNG HÌNH MỚI
+                st.session_state['processing_frame'] = True 
+                
+                # Vẽ khung màu đỏ để báo hiệu đã chụp/chờ xử lý
+                (x, y, w, h) = faces[0]
+                cv2.rectangle(img_with_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                
+                # Dù đã chụp, vẫn trả về khung hình để luồng video không bị gián đoạn hoàn toàn.
             
-            # Vẽ khung màu đỏ để báo hiệu đã chụp/chờ xử lý
-            (x, y, w, h) = faces[0]
-            cv2.rectangle(img_with_frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-            
-            # Sau khi lưu vào Session State, Streamlit sẽ tự động rerun khi luồng video trả về.
-            # Không cần gọi st.rerun() trực tiếp từ đây.
-            
+            else:
+                # Vẽ khung màu xanh lá nếu có khuôn mặt (hoặc nhiều khuôn mặt)
+                for (x, y, w, h) in faces:
+                    cv2.rectangle(img_with_frame, (x, y), (x + w, y + h), (0, 255, 0), 2) 
+        
         else:
-            # Vẽ khung màu xanh lá nếu có khuôn mặt
-            for (x, y, w, h) in faces:
-                cv2.rectangle(img_with_frame, (x, y), (x + w, y + h), (0, 255, 0), 2) 
-            
+            # Khi processing_frame là TRUE (đang xử lý DeepFace), vẽ khung màu vàng để báo hiệu TẠM DỪNG CAPTURE
+            # và trả về khung hình đen/trắng để giảm tải xử lý trong thời gian chờ
+            # Lấy tọa độ khuôn mặt gần nhất từ session state nếu có
+            coords = st.session_state.get('face_coords')
+            if coords is not None:
+                (x, y, w, h) = coords
+                cv2.rectangle(img_with_frame, (x, y), (x + w, y + h), (0, 255, 255), 2) # Vàng
+
+            # (Optional) Chuyển khung hình sang xám để báo hiệu tạm dừng
+            # gray_frame = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            # img_with_frame = cv2.cvtColor(gray_frame, cv2.COLOR_GRAY2BGR)
+
         return av.VideoFrame.from_ndarray(img_with_frame, format="bgr24")
 
 # ----------------------------------------------------------------------
@@ -388,7 +402,6 @@ def main_app(credentials):
     """
     
     # === KHỞI TẠO KEY SESSION STATE ===
-    # Khởi tạo key cho camera input nếu chưa có (Dùng cho logic DeepFace)
     if 'processing_frame' not in st.session_state:
         st.session_state['processing_frame'] = False # Cờ kiểm tra ảnh đang chờ xử lý
     if 'captured_frame' not in st.session_state:
@@ -397,7 +410,7 @@ def main_app(credentials):
         st.session_state['face_coords'] = None
     # =================================
 
-    # 1. Tải Dataset & Checklist
+    # 1. Tải Dataset & Checklist (GIỮ NGUYÊN)
     from config import GDRIVE_DATASET_FOLDER_ID, GDRIVE_CHECKLIST_ID
     from config import download_dataset_folder_real
     
@@ -431,7 +444,7 @@ def main_app(credentials):
 
     st.info(f"Checklist có {len(checklist_df)} người.")
 
-    # 2. Chọn Buổi Học (Dropdown)
+    # 2. Chọn Buổi Học (Dropdown) (GIỮ NGUYÊN)
     attendance_cols = [col for col in st.session_state[CHECKLIST_SESSION_KEY].columns if "Buổi" in col]
 
     if not attendance_cols:
@@ -449,7 +462,7 @@ def main_app(credentials):
     
     selected_session = selected_session_display if selected_session_display != "--- Vui lòng chọn buổi ---" else None
 
-    # --- BỔ SUNG: CHECKBOX HIỂN THỊ ẢNH DEBUG VÀ AUTO CHECK ---
+    # --- BỔ SUNG: CHECKBOX HIỂN THỊ ẢNH DEBUG VÀ AUTO CHECK (GIỮ NGUYÊN) ---
     col_debug, col_auto = st.columns(2) 
     
     with col_debug:
@@ -465,38 +478,47 @@ def main_app(credentials):
             value=False, 
             help="Nếu được bật, sau khi điểm danh thành công, màn hình sẽ tự động clear và chuẩn bị cho lần chụp tiếp theo sau 2 giây."
         )
-        st.session_state['auto_check_enabled'] = auto_check_enabled # Lưu cờ vào Session State để VideoProcessor truy cập
+        st.session_state['auto_check_enabled'] = auto_check_enabled 
     # ---------------------------------------------
 
     st.markdown("---")
+    
+    # Placeholder cho video và kết quả
+    video_placeholder = st.empty()
+    result_placeholder = st.empty()
+
 
     # 3. KÍCH HOẠT LUỒNG VIDEO & XỬ LÝ ẢNH ĐÃ TỰ ĐỘNG CHỤP
     if selected_session:
         
-        st.subheader("🔴 Luồng Video Trực tiếp (Tự động chụp khi phát hiện 1 khuôn mặt)")
+        # HIỂN THỊ LUỒNG VIDEO (Nếu không đang xử lý DeepFace)
+        # Chỉ hiển thị video khi không chạy DeepFace, DeepFace sẽ chạy trong khối sau.
+        if st.session_state.get('processing_frame', False) == False:
+             
+            with video_placeholder.container():
+                st.subheader("🔴 Luồng Video Trực tiếp (Tự động chụp khi phát hiện 1 khuôn mặt)")
+                
+                # --- STREAMLIT-WEBRTC WIDGET ---
+                webrtc_ctx = webrtc_streamer(
+                    key="webcam_stream",
+                    mode=WebRtcMode.SENDRECV,
+                    video_processor_factory=lambda: FaceDetectionProcessor(face_cascade),
+                    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+                    media_stream_constraints={"video": True, "audio": False},
+                )
+                # ------------------------------
         
-        # --- STREAMLIT-WEBRTC WIDGET ---
-        webrtc_ctx = webrtc_streamer(
-            key="webcam_stream",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=lambda: FaceDetectionProcessor(face_cascade),
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-            media_stream_constraints={"video": True, "audio": False},
-        )
-        # ------------------------------
-        
-        # Sử dụng placeholder để hiển thị kết quả (Nếu có ảnh được chụp)
-        result_placeholder = st.empty()
-
-        # --- LOGIC XỬ LÝ HẬU KỲ (DEEPFACE) KHI CÓ KHUNG HÌNH ĐƯỢC CHỤP ---
-        # Nếu có khung hình được tự động chụp trong Session State (do VideoProcessor kích hoạt)
+        # --- LOGIC XỬ LÝ HẬU KỲ (DEEPFACE) KHI CÓ KHUNG HÌNH ĐƯỢC CHỤP VÀ ĐANG CHỜ XỬ LÝ ---
         if st.session_state['captured_frame'] is not None and st.session_state.get('processing_frame', False) == True:
             
-            # Lấy dữ liệu và dọn dẹp Session State (trừ cờ processing_frame để giữ luồng video tạm nghỉ)
+            # Gỡ bỏ video placeholder để giao diện được tập trung vào xử lý
+            video_placeholder.empty() 
+
+            # Lấy dữ liệu
             image_original_bgr = st.session_state.pop('captured_frame')
             faces_coords = [st.session_state.pop('face_coords')]
             
-            # Chuyển ảnh BGR về bytes (phù hợp với update_checklist_and_save_new_data)
+            # Chuyển ảnh BGR về bytes
             _, image_bytes_original = cv2.imencode('.jpg', image_original_bgr)
             image_bytes_original = image_bytes_original.tobytes()
             
@@ -508,7 +530,6 @@ def main_app(credentials):
             
             with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
                 
-                # CHỈ XỬ LÝ TIẾP NẾU CÓ ĐÚNG 1 KHUÔN MẶT ĐÃ ĐƯỢC CHỤP (Đã kiểm tra trong VideoProcessor)
                 if num_faces == 1:
                     
                     (x, y, w, h) = faces_coords[0]
@@ -599,7 +620,25 @@ def main_app(credentials):
                 os.remove(TEMP_IMAGE_PATH)
             
             # Gỡ cờ xử lý để VideoProcessor có thể chụp khung hình mới (nếu không auto check)
-            st.session_state['processing_frame'] = False 
+            # NẾU KHÔNG DÙNG AUTO CHECK, CHỜ NGƯỜI DÙNG NHẤN NÚT ĐỂ TIẾP TỤC
+            if not auto_check_enabled:
+                
+                # Thêm nút "Tiếp tục"
+                if st.button("▶️ Tiếp tục Điểm danh"):
+                    # Gỡ cờ xử lý và xóa kết quả cũ
+                    st.session_state['processing_frame'] = False
+                    result_placeholder.empty()
+                    st.rerun()
+                # Quan trọng: Không xóa processing_frame = True nếu không nhấn nút
+                
+            else:
+                 # Đã được xử lý trong khối if auto_check_enabled ở trên (nếu thành công)
+                 # Nếu thất bại (không khớp), cần gỡ cờ để tự động tiếp tục
+                 if stt_match is None:
+                     time.sleep(1) # Đợi 1s để người dùng thấy thông báo Waning
+                     st.session_state['processing_frame'] = False 
+                     st.rerun()
+                     return
 
     # 4. HIỂN THỊ TRẠNG THÁI CHECKLIST BAN ĐẦU HOẶC SAU KHI RERUN
     if CHECKLIST_SESSION_KEY in st.session_state:
