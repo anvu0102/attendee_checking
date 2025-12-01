@@ -22,7 +22,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 # --- THƯ VIỆN BỔ SUNG CHO LIVESTREAM VÀ XỬ LÝ ĐA LUỒNG ---
-from streamlit_webrtc import webrtc_stream, VideoTransformerBase
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 from typing import List
 import threading 
 
@@ -530,7 +530,7 @@ def main_app(credentials):
         st.subheader("🔴 Đang Live: Auto Check (Phát hiện 1 khuôn mặt để chụp)")
         
         # Khởi tạo Stream
-        webrtc_ctx = webrtc_stream(
+        webrtc_ctx = webrtc_streamer(
             key="face-tracking-stream",
             video_processor_factory=lambda: FaceTrackingTransformer(face_cascade),
             media_stream_constraints={"video": True, "audio": False},
