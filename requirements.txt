@@ -8,4 +8,7 @@ Pillow==10.2.0
 tf-keras
 tensorflow==2.12
 openpyxl
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
 
