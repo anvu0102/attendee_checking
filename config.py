@@ -81,7 +81,7 @@ def get_valid_access_token_real(client_id, client_secret, refresh_token):
         st.error("❌ Lỗi: Credentials không có Refresh Token.")
         return None
         
-    st.success("✅ Access Token is ready.")
+    # st.success("✅ Access Token is ready.")
     return creds
 
 
@@ -144,7 +144,7 @@ def download_dataset_folder_real(folder_id, target_folder, _credentials):
                 while done is False:
                     status, done = downloader.next_chunk()
 
-        st.success(f"✅ Đã tải thành công {len(items)} file ảnh dataset vào thư mục '{target_folder}'.")
+        # st.success(f"✅ Đã tải thành công {len(items)} file ảnh dataset vào thư mục '{target_folder}'.")
         return True
         
     except Exception as e:
