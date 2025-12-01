@@ -12,7 +12,7 @@ import tempfile
 import pandas as pd
 from deepface import DeepFace
 import requests
-import re # Thêm thư viện re để xử lý regex
+import re 
 
 # Import hằng số và hàm từ config.py
 from config import (
@@ -56,26 +56,35 @@ face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
 
 def detect_and_draw_face(image_bytes, cascade):
-    """ Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh. """
+    """ 
+    Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh. 
+    Trả về: ảnh có khung (RGB), ảnh gốc (BGR), cờ phát hiện, số lượng khuôn mặt.
+    """
     
     # Đọc ảnh từ bytes
     image_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     image_np = np.array(image_pil)
-    image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    # Lấy ảnh gốc BGR để truyền cho DeepFace
+    image_original_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR) 
+    
+    # Tạo bản sao để vẽ khung
+    image_bgr_with_frame = image_original_bgr.copy()
+    
+    gray = cv2.cvtColor(image_original_bgr, cv2.COLOR_BGR2GRAY)
     
     faces = []
     if cascade is not None:
         # Phát hiện khuôn mặt
         faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
 
-    # Vẽ khung
+    # Vẽ khung lên bản sao
     for (x, y, w, h) in faces:
-        cv2.rectangle(image_bgr, (x, y), (x + w, y + h), (255, 0, 0), 2)
+        cv2.rectangle(image_bgr_with_frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
     
-    processed_image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    processed_image_rgb = cv2.cvtColor(image_bgr_with_frame, cv2.COLOR_BGR2RGB)
 
-    return processed_image_rgb, len(faces) > 0, len(faces), image_bgr
+    # TRẢ VỀ: (ảnh có khung (RGB), ảnh GỐC (BGR), cờ phát hiện, số lượng khuôn mặt)
+    return processed_image_rgb, image_original_bgr, len(faces) > 0, len(faces)
 
 
 def verify_face_against_dataset(target_image_path, dataset_folder):
@@ -101,8 +110,9 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             return stt_match, distance
         return None, None
     except Exception as e:
+        # Chỉ in lỗi DeepFace nếu không phải lỗi không phát hiện
         if "Face could not be detected" in str(e):
-             st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp.")
+             st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp. (Kiểm tra chất lượng ảnh)")
         else:
             st.error(f"❌ Lỗi DeepFace: {e}")
         return None, None
@@ -195,6 +205,9 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             
     # 2. Lưu ảnh mới lên Drive (Nếu không khớp)
     else: 
+        # Cảnh báo không khớp
+        st.warning("⚠️ Khuôn mặt không khớp. Đang lưu ảnh vào folder dữ liệu mới...")
+
         # Lấy số thứ tự tiếp theo dựa trên các file hiện có trên Drive
         next_counter = get_next_new_data_stt(_credentials)
         
@@ -281,16 +294,17 @@ def main_app(credentials):
         with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
             
             # Phát hiện khuôn mặt và vẽ khung
-            processed_image_np, face_detected, num_faces, image_bgr = detect_and_draw_face(image_bytes, face_cascade)
+            # NHẬN KẾT QUẢ GỒM: ảnh có khung (RGB), ảnh GỐC (BGR), cờ phát hiện, số lượng khuôn mặt
+            processed_image_np, image_original_bgr, face_detected, num_faces = detect_and_draw_face(image_bytes, face_cascade)
             processed_image = Image.fromarray(processed_image_np)
             
-            # LƯU ẢNH TẠM THỜI cho DeepFace so khớp
+            # LƯU ẢNH GỐC (chưa vẽ khung) TẠM THỜI cho DeepFace so khớp
             temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
             TEMP_IMAGE_PATH = temp_file.name
             temp_file.close() 
             
-            # Lưu ảnh BGR (OpenCV) vào file tạm
-            cv2.imwrite(TEMP_IMAGE_PATH, image_bgr)
+            # LƯU ẢNH GỐC BGR
+            cv2.imwrite(TEMP_IMAGE_PATH, image_original_bgr)
             
             # Thực hiện so khớp DeepFace
             stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
