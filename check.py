@@ -107,6 +107,7 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
             best_match = df_list[0].iloc[0]
             identity_path = best_match['identity']
+            print(identity_path)
             # Lấy STT từ tên file (vd: 1_001.jpg -> 1)
             stt_match = os.path.splitext(os.path.basename(identity_path))[0].split('_')[0]
             distance = best_match['ArcFace_cosine'] 
