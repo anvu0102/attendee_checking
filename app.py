@@ -153,18 +153,15 @@ def detect_and_draw_face(image_bytes, cascade):
 
 # --- 4. Hàm DeepFace Recognition ---
 def verify_face_against_dataset(target_image_path, dataset_folder):
-    """
-    Sử dụng DeepFace để so sánh ảnh đầu vào với tất cả ảnh trong dataset.
-    Trả về tên người khớp (tên file) và khoảng cách so khớp (distance).
-    """
     try:
-        # DeepFace.find sẽ tự động tạo vector embedding và lưu cache (representations_arcface.pkl)
         df_list = DeepFace.find(
             img_path=target_image_path, 
             db_path=dataset_folder, 
             model_name="ArcFace",
             distance_metric="cosine",
-            enforce_detection=True 
+            enforce_detection=True, 
+            # THÊM THAM SỐ NÀY để tránh RetinaFace gây lỗi
+            detector_backend="opencv" 
         )
         
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
