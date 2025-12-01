@@ -35,7 +35,6 @@ CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file']
 
 # TẢI CÁC THÔNG TIN TỪ ST.SECRETS
-# Đảm bảo các khóa này đã được định nghĩa trong file secrets.toml
 try:
     GDRIVE_CLIENT_ID = st.secrets["GDRIVE_CLIENT_ID"]
     GDRIVE_CLIENT_SECRET = st.secrets["GDRIVE_CLIENT_SECRET"]
@@ -64,12 +63,11 @@ DETECTOR_BACKEND = "opencv"
 def get_valid_access_token_real(client_id, client_secret):
     """ 
     THỰC TẾ: Lấy Credentials từ st.secrets (dạng non-interactive) và làm mới token.
-    Sử dụng Refresh Token đã lấy thủ công.
     """
     
     # 1. Tạo đối tượng Credentials từ Refresh Token
     creds = Credentials(
-        token=None,  # Bắt đầu không có access token
+        token=None,
         refresh_token=GDRIVE_REFRESH_TOKEN,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
@@ -96,11 +94,12 @@ def get_valid_access_token_real(client_id, client_secret):
 
 
 # --- 2. HÀM TẢI FILE ĐƠN LẺ TỪ G-DRIVE (REAL) ---
-def download_file_from_gdrive(file_id, output_filename, credentials):
+# CHÚ Ý: Đã đổi tên tham số thành _credentials
+def download_file_from_gdrive(file_id, output_filename, _credentials):
     """ Tải file từ Google Drive dùng Google Drive API. """
     
     try:
-        service = build('drive', 'v3', credentials=credentials)
+        service = build('drive', 'v3', credentials=_credentials)
         request = service.files().get_media(fileId=file_id)
         
         with open(output_filename, 'wb') as fh:
@@ -119,7 +118,8 @@ def download_file_from_gdrive(file_id, output_filename, credentials):
 
 # --- 3. HÀM TẢI DATASET FOLDER (REAL) ---
 @st.cache_resource(show_spinner="Đang tải Dataset Folder từ Google Drive...")
-def download_dataset_folder_real(folder_id, target_folder, credentials):
+# CHÚ Ý: Đã đổi tên tham số thành _credentials
+def download_dataset_folder_real(folder_id, target_folder, _credentials):
     """ THỰC TẾ: Tải toàn bộ nội dung folder Drive vào thư mục local. """
     if os.path.isdir(target_folder) and len(os.listdir(target_folder)) > 0:
         st.success(f"Dataset folder đã sẵn sàng tại '{target_folder}'. Bỏ qua tải xuống.")
@@ -129,7 +129,7 @@ def download_dataset_folder_real(folder_id, target_folder, credentials):
         os.makedirs(target_folder)
         
     try:
-        service = build('drive', 'v3', credentials=credentials)
+        service = build('drive', 'v3', credentials=_credentials)
         query = f"'{folder_id}' in parents and trashed = false"
         results = service.files().list(
             q=query, 
@@ -165,16 +165,17 @@ def download_dataset_folder_real(folder_id, target_folder, credentials):
 
 
 # --- 4. HÀM UPLOAD FILE MỚI (REAL) ---
-def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, credentials):
+# CHÚ Ý: Đã đổi tên tham số thành _credentials
+def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, _credentials):
     """
     Tải file lên Google Drive bằng Google Drive API, cần Credential thật.
     """
-    if credentials is None:
+    if _credentials is None:
         st.error("❌ Lỗi Auth: Không thể upload vì không có Credential hợp lệ.")
         return False
     
     try:
-        service = build('drive', 'v3', credentials=credentials)
+        service = build('drive', 'v3', credentials=_credentials)
         
         # Metadata của file
         file_metadata = {
@@ -204,12 +205,13 @@ def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, credential
 
 # --- 5. HÀM TẢI CHECKLIST (REAL) ---
 @st.cache_data(show_spinner="Đang tải và xử lý Checklist (XLSX) từ Google Drive...")
-def load_checklist(file_id, filename, credentials):
+# CHÚ Ý: Đã đổi tên tham số thành _credentials
+def load_checklist(file_id, filename, _credentials):
     """ Tải checklist XLSX và đọc thành DataFrame. """
     
     if not os.path.exists(filename):
-        # Truyền credentials vào hàm download
-        download_file_from_gdrive(file_id, filename, credentials)
+        # Truyền _credentials vào hàm download
+        download_file_from_gdrive(file_id, filename, _credentials)
         
     if os.path.exists(filename):
         try:
@@ -291,7 +293,8 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
 
 
 # --- Logic Ghi Dữ Liệu và Lưu Ảnh Mới ---
-def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, credentials):
+# CHÚ Ý: Đã đổi tên tham số thành _credentials
+def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
     """
@@ -341,8 +344,8 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, cre
             image_to_save = Image.open(io.BytesIO(image_bytes)).convert('RGB')
             image_to_save.save(TEMP_UPLOAD_PATH, format='JPEG')
             
-            # 2. Gọi hàm Upload Drive (REAL)
-            upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, credentials)
+            # 2. Gọi hàm Upload Drive (REAL) - Truyền _credentials
+            upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, _credentials)
 
         except Exception as e:
              st.error(f"❌ Lỗi khi tạo file tạm hoặc gọi hàm upload: {e}")
@@ -356,7 +359,6 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, cre
 # ----------------------------------------------------------------------
 
 # LẤY CREDENTIALS ĐẦU TIÊN
-# Hàm này sẽ sử dụng Refresh Token từ secrets để lấy Access Token
 CREDENTIALS = get_valid_access_token_real(GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET)
 
 if not CREDENTIALS:
@@ -365,9 +367,9 @@ if not CREDENTIALS:
 
 
 # 7.1 KHỞI TẠO VÀ TẢI DATASET & CHECKLIST
-# Tải Folder Dataset (REAL)
+# Tải Folder Dataset (REAL) - Truyền CREDENTIALS vào tham số _credentials
 dataset_ready = download_dataset_folder_real(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, CREDENTIALS) 
-# Tải Checklist (XLSX)
+# Tải Checklist (XLSX) - Truyền CREDENTIALS vào tham số _credentials
 checklist_df = load_checklist(GDRIVE_CHECKLIST_ID, CHECKLIST_FILENAME, CREDENTIALS)
 
 if checklist_df is not None:
