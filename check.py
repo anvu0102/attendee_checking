@@ -128,14 +128,17 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
         return None, None
 
 
-@st.cache_data(show_spinner="Đang tải và xử lý Checklist (XLSX) từ Google Drive...")
+# BỎ DECORATOR @st.cache_data để buộc tải lại checklist mỗi khi app load
 def load_checklist(file_id, filename, _credentials):
-    """ Tải checklist XLSX và đọc thành DataFrame. """
+    """ 
+    Tải checklist XLSX và đọc thành DataFrame. 
+    Hàm này **luôn** tải lại file từ Drive để lấy dữ liệu mới nhất.
+    """
     
-    if not os.path.exists(filename):
-        # Truyền _credentials vào hàm download
-        download_file_from_gdrive(file_id, filename, _credentials)
+    # 1. Tải file checklist mới nhất từ Drive (ghi đè lên file local nếu có)
+    download_file_from_gdrive(file_id, filename, _credentials)
         
+    # 2. Đọc file local vừa tải
     if os.path.exists(filename):
         try:
             # ĐỌC FILE XLSX
@@ -264,6 +267,7 @@ def main_app(credentials):
     # Tải Folder Dataset (REAL) - Truyền CREDENTIALS vào tham số _credentials
     dataset_ready = download_dataset_folder_real(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, credentials) 
     # Tải Checklist (XLSX) - Truyền CREDENTIALS vào tham số _credentials
+    # KHÔNG CÓ CACHE: Luôn tải bản mới nhất từ Drive
     checklist_df = load_checklist(GDRIVE_CHECKLIST_ID, CHECKLIST_FILENAME, credentials)
 
     if checklist_df is not None:
@@ -376,7 +380,7 @@ def main_app(credentials):
         st.download_button(
             label="⬇️ Tải file Excel Checklist đã cập nhật",
             data=excel_data,
-            file_name="diemdanh_capnhat.xlsx",
+            file_name="Checklist_DiemDanh_CapNhat.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Tải về file Excel (XLSX) chứa dữ liệu điểm danh mới nhất trong phiên làm việc hiện tại."
         )
