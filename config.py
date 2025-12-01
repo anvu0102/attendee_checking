@@ -6,6 +6,7 @@ liên quan đến Google Drive API và xác thực.
 import streamlit as st
 import os
 import requests
+import re # Thêm thư viện re để xử lý regex
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -150,6 +151,36 @@ def download_dataset_folder_real(folder_id, target_folder, _credentials):
         st.error(f"❌ Lỗi khi tải Dataset Folder từ Drive: {e}")
         return False
 
+# --- HÀM MỚI: LIỆT KÊ FILE TRONG FOLDER DRIVE ---
+@st.cache_data(ttl=3600) # Cache kết quả trong 1 giờ
+def list_files_in_gdrive_folder(folder_id, _credentials):
+    """
+    Liệt kê tất cả tên file trong một folder Drive chỉ định.
+    Trả về danh sách các tên file (string).
+    """
+    if _credentials is None:
+        st.error("❌ Lỗi Auth: Không thể liệt kê file vì không có Credential hợp lệ.")
+        return []
+    
+    try:
+        service = build('drive', 'v3', credentials=_credentials)
+        
+        # Chỉ lấy tên file, giới hạn 1000 file (pageSize=1000)
+        query = f"'{folder_id}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+        results = service.files().list(
+            q=query, 
+            pageSize=1000,
+            fields="nextPageToken, files(name)"
+        ).execute()
+        
+        items = results.get('files', [])
+        
+        # Trả về danh sách tên file
+        return [item['name'] for item in items]
+        
+    except Exception as e:
+        st.error(f"❌ Lỗi khi liệt kê file trong thư mục Drive ID {folder_id}: {e}")
+        return []
 
 def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, _credentials):
     """
@@ -181,6 +212,9 @@ def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, _credentia
 
         st.success(f"✅ **Upload Thành Công:** File '{drive_filename}' đã được lưu.")
         st.info(f"Đã lưu vào Drive Folder ID: **{drive_folder_id}**.")
+        
+        # Xóa cache của hàm list_files_in_gdrive_folder để dữ liệu mới được cập nhật
+        list_files_in_gdrive_folder.clear()
         
         return True
         
