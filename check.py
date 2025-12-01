@@ -13,7 +13,7 @@ import pandas as pd
 from deepface import DeepFace
 import requests
 import re 
-import time # <<< THÊM THƯ VIỆN TIME
+import time # <<< ĐÃ THÊM THƯ VIỆN TIME
 
 # THƯ VIỆN BỔ SUNG CHO GOOGLE DRIVE API
 from googleapiclient.discovery import build
@@ -34,7 +34,6 @@ from config import (
 
 @st.cache_resource(show_spinner="Đang tải Haar Cascade...")
 def load_face_cascade(url, filename):
-# ... (Phần code này không thay đổi)
     """ Tải Haar Cascade cho OpenCV. """
     try:
         if not os.path.exists(filename):
@@ -62,7 +61,6 @@ face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
 
 def detect_and_draw_face(image_bytes, cascade):
-# ... (Phần code này không thay đổi)
     """ 
     Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh. 
     Trả về: ảnh có khung (RGB), ảnh gốc (BGR), cờ phát hiện, số lượng khuôn mặt.
@@ -77,7 +75,7 @@ def detect_and_draw_face(image_bytes, cascade):
     # Tạo bản sao để vẽ khung
     image_bgr_with_frame = image_original_bgr.copy()
     
-    gray = cv2.cvtColor(image_original_bgr, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image_original_bgr, cv2.COLOR_RGB2GRAY)
     
     faces = []
     if cascade is not None:
@@ -95,7 +93,6 @@ def detect_and_draw_face(image_bytes, cascade):
 
 
 def verify_face_against_dataset(target_image_path, dataset_folder):
-# ... (Phần code này không thay đổi)
     """ Sử dụng DeepFace để so sánh ảnh đầu vào với dataset. """
     try:
         # DeepFace.find trả về danh sách DataFrame, thường chỉ có 1
@@ -136,7 +133,6 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
 
 # BỎ DECORATOR @st.cache_data để buộc tải lại checklist mỗi khi app load
 def load_checklist(file_id, filename, _credentials):
-# ... (Phần code này không thay đổi)
     """ 
     Tải checklist XLSX và đọc thành DataFrame. 
     Hàm này **luôn** tải lại file từ Drive để lấy dữ liệu mới nhất.
@@ -158,7 +154,6 @@ def load_checklist(file_id, filename, _credentials):
 
 # --- HÀM TÌM SỐ THỨ TỰ LỚN NHẤT TRONG FOLDER NEW DATA ---
 def get_next_new_data_stt(_credentials):
-# ... (Phần code này không thay đổi)
     """
     Tìm số thứ tự lớn nhất trong folder NEW_DATA_FOLDER_ID trên Drive
     để đặt tên cho file mới (ví dụ: B1_1.jpg, B1_2.jpg, ...).
@@ -193,7 +188,6 @@ def get_next_new_data_stt(_credentials):
 
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
-# ... (Phần code này không thay đổi)
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
     """
@@ -212,7 +206,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             row_index = df[df[stt_col].astype(str).str.contains(stt_match, regex=False)].index
             
             if not row_index.empty:
-                # Kiểm tra nếu chưa điểm danh thì mới cập nhật
+                # Kiểm tra nếu chưa điểm danh thì mới cập nhật (NGĂN TRÙNG LẶP)
                 if df.loc[row_index[0], session_name] != 'X':
                     df.loc[row_index[0], session_name] = 'X'
                     st.session_state[CHECKLIST_SESSION_KEY] = df 
@@ -264,15 +258,17 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
 #                             GIAO DIỆN CHÍNH (main_app)
 # ----------------------------------------------------------------------
 
-# Khởi tạo key cho camera input nếu chưa có
-if 'camera_input_key' not in st.session_state:
-    st.session_state['camera_input_key'] = 0
-
 def main_app(credentials):
     """
     Hàm chứa toàn bộ logic giao diện Streamlit.
     """
     
+    # === KHỞI TẠO KEY SESSION STATE NGAY TẠI ĐẦU HÀM main_app (Khắc phục KeyError) ===
+    # Khởi tạo key cho camera input nếu chưa có
+    if 'camera_input_key' not in st.session_state:
+        st.session_state['camera_input_key'] = 0
+    # ==============================================================================
+
     # 1. Tải Dataset & Checklist
     from config import GDRIVE_DATASET_FOLDER_ID, GDRIVE_CHECKLIST_ID
     from config import download_dataset_folder_real
@@ -392,10 +388,10 @@ def main_app(credentials):
                     time.sleep(5) # Đợi 5 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
-                    st.rerun() # Buộc rerun để reset camera input widget
+                    st.rerun() # Buộc rerun (Sửa từ experimental_rerun)
                     # --------------------------------------
-                    return 
-
+                    return # Thêm return để thoát hàm, ngăn lỗi trạng thái
+                    
                 elif face_detected and num_faces == 1:
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
                     # Lưu ảnh mới (truyền image_bytes và credentials)
