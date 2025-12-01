@@ -319,7 +319,8 @@ def main_app(credentials):
         st.markdown("---")
         st.subheader("💡 Kết quả Điểm danh")
 
-        stt_match = 2
+        stt_match = "2"
+        distance =  0.0512
         if stt_match:
             st.balloons()
             st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
