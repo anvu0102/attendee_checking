@@ -1,8 +1,8 @@
 # check.py
 """
 Chứa các hàm xử lý DeepFace, OpenCV, logic cập nhật checklist và giao diện Streamlit.
-ĐÃ CẬP NHẬT: Loại bỏ st.camera_input, thay thế bằng streamlit_webrtc để xử lý luồng video trực tiếp 
-(Loại bỏ nhu cầu nhấn nút 'Take Photo').
+ĐÃ SỬA LỖI: AttributeError: 'WebRtcStreamerContext' object has no attribute 'get_last_frame'
+Thay thế bằng việc sử dụng out_queue (Hàng đợi) để nhận khung hình video.
 """
 import streamlit as st
 import cv2
@@ -17,9 +17,12 @@ import requests
 import re 
 import time
 import datetime 
-# --- THƯ VIỆN BỔ SUNG CHO WEBRTC ---
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
-import av # Cần cho việc chuyển đổi frame
+
+# --- THƯ VIỆN BỔ SUNG CHO WEBRTC VÀ SỬA LỖI ATTRIBUTEERROR ---
+# Cần import WebRtcMode và Queue
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode 
+from queue import Queue, Empty 
+import av 
 # ------------------------------------
 
 # THƯ VIỆN BỔ SUNG CHO GOOGLE DRIVE API
@@ -86,14 +89,11 @@ def detect_and_draw_face(image_np_bgr, cascade):
     
     processed_image_rgb = cv2.cvtColor(image_bgr_with_frame, cv2.COLOR_BGR2RGB)
 
-    # TRẢ VỀ: (ảnh có khung (RGB), cờ phát hiện, số lượng khuôn mặt, TỌA ĐỘ KHUÔN MẶT)
     return processed_image_rgb, len(faces) > 0, len(faces), faces
 
 
 def verify_face_against_dataset(target_image_path, dataset_folder):
-    """ 
-    Sử dụng DeepFace để so sánh ảnh đầu vào (ĐÃ CẮT) với dataset. 
-    """
+    """ Sử dụng DeepFace để so sánh ảnh đầu vào (ĐÃ CẮT) với dataset. """
     try:
         df_list = DeepFace.find(
             img_path=target_image_path, 
@@ -118,7 +118,6 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
         return None, None
     except Exception as e:
         if "Face could not be detected" not in str(e):
-            # Chỉ hiển thị lỗi DeepFace nếu không phải lỗi không phát hiện
             st.error(f"❌ Lỗi DeepFace: {e}")
         return None, None
 
@@ -138,9 +137,8 @@ def load_checklist(file_id, filename, _credentials):
             return None
     return None
 
-# --- HÀM TÌM SỐ THỨ TỰ LỚN NHẤT VÀ KIỂM TRA TỒN TẠI (GIỮ NGUYÊN) ---
 def get_next_new_data_stt(_credentials):
-    # ... (giữ nguyên hàm)
+    """ Tìm số thứ tự lớn nhất trong folder NEW_DATA_FOLDER_ID. """
     file_list = list_files_in_gdrive_folder(GDRIVE_NEW_DATA_FOLDER_ID, _credentials)
     max_stt = 0
     pattern = re.compile(r'B\d+_(\d+)\.jpe?g$', re.IGNORECASE)
@@ -156,7 +154,7 @@ def get_next_new_data_stt(_credentials):
     return max_stt + 1
 
 def check_drive_file_existence(folder_id, filename, _credentials):
-    # ... (giữ nguyên hàm)
+    """ Kiểm tra xem file có tên filename đã tồn tại. """
     try:
         service = build('drive', 'v3', credentials=_credentials)
         query = (
@@ -174,7 +172,7 @@ def check_drive_file_existence(folder_id, filename, _credentials):
 
 @st.cache_resource(show_spinner="Đang kiểm tra/tạo folder Drive...")
 def get_or_create_drive_folder(parent_id, folder_name, _credentials):
-    # ... (giữ nguyên hàm)
+    """ Tìm ID của folder con trong parent_id. Nếu chưa tồn tại, tạo mới. """
     try:
         service = build('drive', 'v3', credentials=_credentials)
         query = (
@@ -186,7 +184,6 @@ def get_or_create_drive_folder(parent_id, folder_name, _credentials):
         results = service.files().list(q=query, fields="files(id, name)").execute()
         items = results.get('files', [])
         if items:
-            st.info(f"📁 Folder Drive: Đã tìm thấy '{folder_name}'.")
             return items[0]['id']
         else:
             file_metadata = {
@@ -195,14 +192,13 @@ def get_or_create_drive_folder(parent_id, folder_name, _credentials):
                 'parents': [parent_id]
             }
             file = service.files().create(body=file_metadata, fields='id').execute()
-            st.success(f"📁 Folder Drive: Đã tạo folder mới '{folder_name}'.")
             return file.get('id')
     except Exception as e:
         st.error(f"❌ Lỗi Drive API khi kiểm tra/tạo folder: {e}")
         return None
         
 def load_dataset_image(stt_match, dataset_folder):
-    # ... (giữ nguyên hàm)
+    """ Tìm và trả về đường dẫn của ảnh dataset tương ứng với STT match đầu tiên. """
     pattern_simple = re.compile(rf'^{stt_match}\.jpe?g$', re.IGNORECASE)
     pattern_complex = re.compile(rf'^{stt_match}_.*\.jpe?g$', re.IGNORECASE)
     
@@ -215,7 +211,6 @@ def load_dataset_image(stt_match, dataset_folder):
     return None
 
         
-# --- HÀM CẬP NHẬT CHECKLIST VÀ LƯU ẢNH (CHỈNH SỬA ĐỂ NHẬN ẢNH BGR) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_np_bgr, _credentials):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
@@ -228,16 +223,9 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_np_bgr, _c
     df = st.session_state[CHECKLIST_SESSION_KEY]
     updated = False 
     
-    # Chuyển đổi NumPy BGR sang PIL RGB để lưu vào BytesIO/File
     image_to_save_rgb = cv2.cvtColor(image_np_bgr, cv2.COLOR_BGR2RGB)
     image_pil = Image.fromarray(image_to_save_rgb)
     
-    # Chuẩn bị BytesIO cho ảnh gốc
-    output = io.BytesIO()
-    image_pil.save(output, format='JPEG')
-    image_bytes = output.getvalue()
-
-
     # 1. Cập nhật Checklist (Đánh 'X')
     if stt_match is not None:
         try:
@@ -245,8 +233,6 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_np_bgr, _c
             row_index = df[df[stt_col] == stt_match].index
             
             if not row_index.empty:
-                
-                # --- LƯU ẢNH GỐC VÀO FOLDER THEO BUỔI (Điểm danh thành công) ---
                 stt = df.loc[row_index[0], stt_col]
                 session_folder_name = session_name.replace("Buổi ", "B")
                 target_folder_id = get_or_create_drive_folder(
@@ -269,9 +255,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_np_bgr, _c
                     temp_file_for_upload.close()
                     
                     try:
-                        # Lưu ảnh từ bytes (image_bytes - LÚC NÀY LÀ ẢNH GỐC) vào file tạm
                         image_pil.save(TEMP_UPLOAD_PATH, format='JPEG')
-                        
                         upload_to_gdrive_real(TEMP_UPLOAD_PATH, target_folder_id, drive_filename, _credentials)
                         st.info(f"🖼️ Đã lưu ảnh thành công: {session_folder_name}/{drive_filename}")
                     
@@ -280,16 +264,11 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_np_bgr, _c
                     finally:
                         if os.path.exists(TEMP_UPLOAD_PATH):
                             os.remove(TEMP_UPLOAD_PATH)
-                else:
-                    st.warning("⚠️ Không thể xác định/tạo folder Drive để lưu ảnh.")
-                # --------------------------------------------------------------------------
-
                 
                 if df.loc[row_index[0], session_name] != 'X':
                     df.loc[row_index[0], session_name] = 'X'
                     st.session_state[CHECKLIST_SESSION_KEY] = df 
                     updated = True 
-                    
                     st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
 
                 else:
@@ -325,19 +304,15 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_np_bgr, _c
     return updated 
 
 
-# --- HÀM XỬ LÝ FRAME SỐNG (LIVE FRAME PROCESSING LOGIC) ---
 def process_live_frame(image_np_bgr, selected_session, credentials, show_debug_images):
     """
     Hàm xử lý DeepFace cho một khung hình duy nhất,
     cập nhật checklist và hiển thị kết quả.
-    image_np_bgr: Mảng NumPy BGR của khung hình hiện tại.
     """
     stt_match = None
     distance = None
     TEMP_IMAGE_PATH = None
     
-    # --- 1. PHÁT HIỆN VÀ CẮT KHUÔN MẶT ---
-    # Ảnh BGR gốc (chỉ dùng để cắt)
     image_original_bgr = image_np_bgr.copy() 
     
     processed_image_rgb, face_detected, num_faces, faces = detect_and_draw_face(image_original_bgr, face_cascade)
@@ -352,18 +327,15 @@ def process_live_frame(image_np_bgr, selected_session, credentials, show_debug_i
 
         cropped_face_bgr = image_original_bgr[y1:y2, x1:x2]
         
-        # LƯU ẢNH KHUÔN MẶT ĐÃ CẮT VÀO FILE TẠM
         temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
         TEMP_IMAGE_PATH = temp_file.name
         temp_file.close() 
         cv2.imwrite(TEMP_IMAGE_PATH, cropped_face_bgr)
         
-        # --- 2. SO KHỚP DEEPFACE ---
         stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
     
     # --- 3. HIỂN THỊ VÀ CẬP NHẬT KẾT QUẢ ---
     
-    # Sử dụng st.container() để chứa kết quả xử lý
     with st.container():
         st.subheader("🖼️ Khuôn mặt đã phát hiện")
         st.image(processed_image_rgb, caption="Khuôn mặt được đánh dấu trong khung hình.", width='stretch')
@@ -374,7 +346,6 @@ def process_live_frame(image_np_bgr, selected_session, credentials, show_debug_i
             st.balloons()
             st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
             
-            # --- Hiển thị ảnh debug ---
             if show_debug_images: 
                 dataset_image_path = load_dataset_image(stt_match, DATASET_FOLDER)
                 col1, col2 = st.columns(2)
@@ -390,10 +361,8 @@ def process_live_frame(image_np_bgr, selected_session, credentials, show_debug_i
             * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
             """)
             
-            # Cập nhật checklist VÀ LƯU ẢNH GỐC THÀNH CÔNG
             updated = update_checklist_and_save_new_data(stt_match, selected_session, image_original_bgr, credentials)
             
-            # Quay lại trạng thái chờ sau 5 giây để tránh xử lý lặp lại ngay lập tức
             if updated:
                 st.info("Đã cập nhật checklist thành công. Tự động reset sau 5 giây.")
                 time.sleep(5) 
@@ -403,7 +372,6 @@ def process_live_frame(image_np_bgr, selected_session, credentials, show_debug_i
             if show_debug_images and TEMP_IMAGE_PATH: 
                 st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", width='content')
             
-            # Lưu ảnh gốc không khớp
             update_checklist_and_save_new_data(None, selected_session, image_original_bgr, credentials) 
             st.info("Đã lưu ảnh không khớp. Tự động reset sau 5 giây.")
             time.sleep(5)
@@ -418,16 +386,13 @@ def process_live_frame(image_np_bgr, selected_session, credentials, show_debug_i
             st.info("Tự động reset sau 5 giây.")
             time.sleep(5)
             
-    # Xóa file tạm sau khi đã xử lý
     if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
         os.remove(TEMP_IMAGE_PATH)
         
-    # Buộc Streamlit rerun để xóa giao diện kết quả và quay lại trạng thái chờ
     st.rerun()
 
-# --- HÀM CẬP NHẬT PLACEHOLDER CHECKLIST (GIỮ NGUYÊN) ---
 def update_checklist_display(checklist_placeholder, current_df):
-    """Cập nhật nội dung của placeholder checklist."""
+    """ Cập nhật nội dung của placeholder checklist. """
     with checklist_placeholder.container():
         st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session)")
         st.dataframe(current_df)
@@ -455,12 +420,13 @@ def main_app(credentials):
     """
     
     # === KHỞI TẠO KEY SESSION STATE ===
-    # Sử dụng 'processing_triggered' để theo dõi trạng thái kích hoạt xử lý
     if 'processing_triggered' not in st.session_state:
         st.session_state['processing_triggered'] = False
-    # Sử dụng 'webrtc_key' để reset widget
     if 'webrtc_key' not in st.session_state:
         st.session_state['webrtc_key'] = 0
+    # KHỞI TẠO HÀNG ĐỢI
+    if 'frame_queue' not in st.session_state:
+        st.session_state['frame_queue'] = Queue()
     # =================================
 
     # 1. Tải Dataset & Checklist
@@ -527,15 +493,16 @@ def main_app(credentials):
         
         col_video, col_trigger = st.columns([2, 1])
 
-        # --- VIDEO STREAM ---
+        # --- VIDEO STREAM (SỬ DỤNG out_queue) ---
         with col_video:
             st.subheader("📹 Luồng Video Trực tiếp")
-            # Sử dụng key để có thể reset widget
             webrtc_ctx = webrtc_streamer(
                 key=f"webrtc_{st.session_state['webrtc_key']}", 
+                mode=WebRtcMode.SENDRECV, 
                 video_transformer_factory=None, 
                 media_stream_constraints={"video": True, "audio": False},
-                async_transform=False # Xử lý đồng bộ (mặc dù ta không dùng transformer)
+                # TRUYỀN HÀNG ĐỢI ĐỂ NHẬN FRAME ĐẦU RA
+                out_queue=st.session_state['frame_queue']
             )
 
         # --- TRIGGER BUTTON ---
@@ -544,29 +511,36 @@ def main_app(credentials):
             # Button để kích hoạt việc lấy khung hình và xử lý
             if st.button("🔴 Kích hoạt Xử lý/Điểm danh", help="Nhấn để lấy khung hình hiện tại và thực hiện nhận diện.", disabled=not (webrtc_ctx and webrtc_ctx.state.playing)):
                 st.session_state['processing_triggered'] = True
-                # Buộc Streamlit rerun để thực thi logic xử lý bên dưới
                 st.rerun()
 
         # --- LOGIC XỬ LÝ SAU KHI KÍCH HOẠT ---
         if st.session_state['processing_triggered'] and webrtc_ctx and webrtc_ctx.state.playing:
             
-            # Reset cờ kích hoạt
             st.session_state['processing_triggered'] = False
             
-            latest_frame = webrtc_ctx.get_last_frame()
+            # Lấy frame mới nhất từ hàng đợi
+            latest_frame = None
+            try:
+                frame_queue = st.session_state['frame_queue']
+                # Xóa hết frame cũ, chỉ giữ lại frame cuối cùng
+                while True:
+                    frame = frame_queue.get_nowait()
+                    if frame is not None:
+                         latest_frame = frame
+            except Empty:
+                 # Hàng đợi trống (frame đã được lấy hết)
+                 pass
             
             if latest_frame:
                 with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
-                    # Chuyển đổi khung hình AV (RGB) sang mảng NumPy BGR cho OpenCV
+                    # Chuyển đổi khung hình AV sang mảng NumPy BGR
                     image_np_rgb = latest_frame.to_ndarray(format="rgb24")
                     image_np_bgr = cv2.cvtColor(image_np_rgb, cv2.COLOR_RGB2BGR)
 
                     # --- GỌI HÀM XỬ LÝ FRAME SỐNG ---
                     process_live_frame(image_np_bgr, selected_session, credentials, show_debug_images)
-                    
-                    # Nếu process_live_frame gọi rerun, code dưới đây sẽ không chạy
             else:
-                st.warning("⚠️ Không thể lấy khung hình. Đảm bảo camera đã hoạt động.")
+                st.warning("⚠️ Không thể lấy khung hình từ luồng video. Vui lòng thử lại.")
                 time.sleep(2)
                 st.rerun()
                 
