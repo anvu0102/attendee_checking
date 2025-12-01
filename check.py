@@ -486,16 +486,10 @@ def main_app(credentials):
 
     # 3. Chụp Ảnh và Xử Lý
     if selected_session:
-        
-        # TẠO CỘT MỚI: [Tỉ lệ 1, Tỉ lệ 2] => Camera chiếm 1/3 chiều rộng
-        col_camera, col_spacer = st.columns([20, 1])
-        
-        with col_camera:
-            # ĐẶT CAMERA INPUT VÀO CỘT CÓ KÍCH THƯỚC GIỚI HẠN
-            captured_file = st.camera_input(
-                "Chụp ảnh điểm danh", 
-                key=f"camera_input_{st.session_state['camera_input_key']}" 
-            )
+        captured_file = st.camera_input(
+            "Chụp ảnh điểm danh", 
+            key=f"camera_input_{st.session_state['camera_input_key']}" 
+        )
         
         # Tạo placeholder cho kết quả (Đảm bảo nó vẫn nằm ngoài col_camera)
         result_placeholder = st.empty()
