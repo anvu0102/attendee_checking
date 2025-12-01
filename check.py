@@ -1,6 +1,7 @@
 # check.py
 """
 Chứa các hàm xử lý DeepFace, OpenCV, logic cập nhật checklist và giao diện Streamlit.
+Đã điều chỉnh giao diện chính (main_app) để hiển thị camera và ảnh kết quả song song.
 """
 import streamlit as st
 import cv2
@@ -255,7 +256,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
 
 
 # ----------------------------------------------------------------------
-#                             GIAO DIỆN CHÍNH (main_app)
+#                             GIAO DIỆN CHÍNH (main_app) - ĐÃ ĐIỀU CHỈNH
 # ----------------------------------------------------------------------
 
 def main_app(credentials):
@@ -318,10 +319,22 @@ def main_app(credentials):
     # 3. Chụp Ảnh và Xử Lý
     # --- THAY ĐỔI: Chỉ hiển thị camera input nếu đã chọn buổi ---
     if selected_session:
-        captured_file = st.camera_input("2️⃣ Chụp ảnh điểm danh:")
+        
+        # TẠO 2 CỘT CHO HIỂN THỊ SONG SONG
+        col1, col2 = st.columns(2)
+        
+        # Hiển thị Camera Input trong cột 1
+        with col1:
+            captured_file = st.camera_input("2️⃣ Chụp ảnh điểm danh:")
+
+        # Cột 2 ban đầu hiển thị hướng dẫn
+        with col2:
+            st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
+            st.info("Ảnh kết quả (có khung nhận diện) sẽ hiển thị ở đây sau khi bạn chụp ảnh.")
 
         if captured_file is not None:
             
+            # --- PHẦN XỬ LÝ ẢNH BỊ RÚT GỌN VÀ CHUYỂN VÀO SPINNER
             image_bytes = captured_file.getvalue()
             
             with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
@@ -346,8 +359,12 @@ def main_app(credentials):
             if os.path.exists(TEMP_IMAGE_PATH):
                 os.remove(TEMP_IMAGE_PATH)
                 
-            st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
-            st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
+            # --- GHI ĐÈ KẾT QUẢ HIỂN THỊ VÀO CỘT 2 ---
+            with col2:
+                # Ảnh đã chụp (có khung nhận diện)
+                st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
+            # ---------------------------------------------
+
 
             st.markdown("---")
             st.subheader("💡 Kết quả Điểm danh")
