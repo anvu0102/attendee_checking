@@ -3,6 +3,7 @@ opencv-python
 numpy
 pillow
 requests
-deepface
-tensorflow
-keras
+deepface==0.0.95
+tensorflow==2.10.0
+keras==2.10.0
+
