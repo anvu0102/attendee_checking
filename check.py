@@ -1,6 +1,7 @@
 # check.py
 """
 Chứa các hàm xử lý DeepFace, OpenCV, logic cập nhật checklist và giao diện Streamlit.
+Đã bổ sung: Checkbox để điều khiển việc hiển thị ảnh đã cắt và ảnh dataset/không khớp.
 """
 import streamlit as st
 import cv2
@@ -14,7 +15,7 @@ from deepface import DeepFace
 import requests
 import re 
 import time
-import datetime # <<< THƯ VIỆN ĐÃ THÊM
+import datetime 
 
 # THƯ VIỆN BỔ SUNG CHO GOOGLE DRIVE API
 from googleapiclient.discovery import build
@@ -262,11 +263,6 @@ def load_dataset_image(stt_match, dataset_folder):
     Tìm và trả về đường dẫn của ảnh dataset tương ứng với STT match đầu tiên.
     Đã cập nhật regex để hỗ trợ cả định dạng STT.jpg và STT_*.jpg.
     """
-    # Biểu thức chính quy mới:
-    # ^{stt_match}\.jpe?g$   -> Khớp STT.jpg
-    # |                     -> HOẶC
-    # ^{stt_match}_.*\.jpe?g$ -> Khớp STT_*.jpg
-    
     # Sử dụng hai pattern riêng biệt để linh hoạt hơn:
     pattern_simple = re.compile(rf'^{stt_match}\.jpe?g$', re.IGNORECASE)
     pattern_complex = re.compile(rf'^{stt_match}_.*\.jpe?g$', re.IGNORECASE)
@@ -394,7 +390,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             
             # Gọi hàm Upload Drive (REAL) - Truyền _credentials
             upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, _credentials)
-            # st.info(f"🖼️ Đã lưu ảnh GỐC không khớp vào folder chung: {drive_filename}")
+            st.info(f"🖼️ Đã lưu ảnh GỐC không khớp vào folder chung: {drive_filename}")
 
         except Exception as e:
              st.error(f"❌ Lỗi khi tạo file tạm hoặc gọi hàm upload: {e}")
@@ -512,6 +508,14 @@ def main_app(credentials):
     else:
         st.info("⬅️ **Vui lòng chọn một Buổi Điểm Danh để tiếp tục.**")
 
+    # --- BỔ SUNG: CHECKBOX HIỂN THỊ ẢNH DEBUG ---
+    show_debug_images = st.checkbox(
+        "2️⃣ Hiển thị Ảnh đã Cắt và Ảnh Dataset (Nếu có)",
+        value=True, # Mặc định bật
+        help="Bật để xem ảnh khuôn mặt được cắt ra và ảnh tương ứng trong dataset (khi điểm danh thành công) hoặc ảnh đã cắt (khi không khớp)."
+    )
+    # ---------------------------------------------
+
     st.markdown("---")
 
     # 3. Chụp Ảnh và Xử Lý
@@ -520,7 +524,7 @@ def main_app(credentials):
         
         # --- THÊM KEY VÀO CAMERA INPUT ---
         captured_file = st.camera_input(
-            "2️⃣ Chụp ảnh điểm danh:", 
+            "3️⃣ Chụp ảnh điểm danh:", 
             key=f"camera_input_{st.session_state['camera_input_key']}" # Sử dụng key từ session state
         )
         # ----------------------------------
@@ -582,24 +586,25 @@ def main_app(credentials):
                     st.balloons()
                     st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
                     
-                    # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT VÀ ẢNH DATASET TRÙNG KHỚP ---
-                    dataset_image_path = load_dataset_image(stt_match, DATASET_FOLDER)
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        # Hiển thị ảnh đã cắt (đã lưu tạm thời)
-                        # TEMP_IMAGE_PATH chỉ tồn tại nếu phát hiện 1 khuôn mặt
-                        if TEMP_IMAGE_PATH:
-                            st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=True)
+                    # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT VÀ ẢNH DATASET TRÙNG KHỚP (CÓ ĐIỀU KIỆN) ---
+                    if show_debug_images: # <<< KIỂM TRA CHECKBOX
+                        dataset_image_path = load_dataset_image(stt_match, DATASET_FOLDER)
                         
-                    with col2:
-                        if dataset_image_path:
-                            # Hiển thị ảnh dataset trùng khớp
-                            st.image(dataset_image_path, caption=f"Dataset (STT: {stt_match})", use_column_width=True)
-                        else:
-                            st.warning("Không tìm thấy ảnh dataset để hiển thị.")
-                    # -------------------------------------------------------------
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Hiển thị ảnh đã cắt (đã lưu tạm thời)
+                            # TEMP_IMAGE_PATH chỉ tồn tại nếu phát hiện 1 khuôn mặt
+                            if TEMP_IMAGE_PATH:
+                                st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=True)
+                            
+                        with col2:
+                            if dataset_image_path:
+                                # Hiển thị ảnh dataset trùng khớp
+                                st.image(dataset_image_path, caption=f"Dataset (STT: {stt_match})", use_column_width=True)
+                            else:
+                                st.warning("Không tìm thấy ảnh dataset để hiển thị.")
+                    # ----------------------------------------------------------------------------
                     
                     st.markdown(f"""
                     * **STT trùng khớp:** **{stt_match}**
@@ -632,11 +637,12 @@ def main_app(credentials):
                 elif face_detected and num_faces == 1:
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
                     
-                    # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT ---
-                    # Ảnh đã cắt được tạo và lưu ở TEMP_IMAGE_PATH
-                    if TEMP_IMAGE_PATH:
-                        st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=False)
-                    # ------------------------------------
+                    # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT (CÓ ĐIỀU KIỆN) ---
+                    if show_debug_images: # <<< KIỂM TRA CHECKBOX
+                        # Ảnh đã cắt được tạo và lưu ở TEMP_IMAGE_PATH
+                        if TEMP_IMAGE_PATH:
+                            st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=False)
+                    # ----------------------------------------------------
                     
                     # Lưu ảnh gốc (truyền image_bytes_original)
                     update_checklist_and_save_new_data(None, selected_session, image_bytes_original, credentials) 
