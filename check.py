@@ -292,77 +292,89 @@ def main_app(credentials):
     if not attendance_cols:
          st.error("Không tìm thấy cột 'Buổi' trong checklist. Vui lòng kiểm tra lại cấu trúc file XLSX.")
          return
-
-    selected_session = st.selectbox(
+    
+    # --- THAY ĐỔI: Thêm một tùy chọn mặc định không phải là buổi học ---
+    display_options = ["--- Vui lòng chọn buổi ---"] + attendance_cols
+    
+    selected_session_display = st.selectbox(
         "1️⃣ **Chọn Buổi Điểm Danh**", 
-        attendance_cols, 
-        index=0,
+        display_options, 
+        index=0, # Mặc định chọn tùy chọn đầu tiên ("--- Vui lòng chọn buổi ---")
         help="Chọn buổi tương ứng để cập nhật cột điểm danh trong checklist."
     )
-    st.success(f"Đang điểm danh cho: **{selected_session}**")
+    
+    # Xác định buổi học thực sự được chọn
+    selected_session = selected_session_display if selected_session_display != "--- Vui lòng chọn buổi ---" else None
+    
+    if selected_session:
+        st.success(f"Đang điểm danh cho: **{selected_session}**")
+    else:
+        st.info("⬅️ **Vui lòng chọn một Buổi Điểm Danh để tiếp tục.**")
 
     st.markdown("---")
 
     # 3. Chụp Ảnh và Xử Lý
-    captured_file = st.camera_input("2️⃣ Chụp ảnh điểm danh:")
+    # --- THAY ĐỔI: Chỉ hiển thị camera input nếu đã chọn buổi ---
+    if selected_session:
+        captured_file = st.camera_input("2️⃣ Chụp ảnh điểm danh:")
 
-    if captured_file is not None:
-        
-        image_bytes = captured_file.getvalue()
-        
-        with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
+        if captured_file is not None:
             
-            # Phát hiện khuôn mặt và vẽ khung
-            # NHẬN KẾT QUẢ GỒM: ảnh có khung (RGB), ảnh GỐC (BGR), cờ phát hiện, số lượng khuôn mặt
-            processed_image_np, image_original_bgr, face_detected, num_faces = detect_and_draw_face(image_bytes, face_cascade)
-            processed_image = Image.fromarray(processed_image_np)
+            image_bytes = captured_file.getvalue()
             
-            # LƯU ẢNH GỐC (chưa vẽ khung) TẠM THỜI cho DeepFace so khớp
-            temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-            TEMP_IMAGE_PATH = temp_file.name
-            temp_file.close() 
-            
-            # LƯU ẢNH GỐC BGR
-            cv2.imwrite(TEMP_IMAGE_PATH, image_original_bgr)
-            
-            # Thực hiện so khớp DeepFace
-            stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
+            with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
+                
+                # Phát hiện khuôn mặt và vẽ khung
+                # NHẬN KẾT QUẢ GỒM: ảnh có khung (RGB), ảnh GỐC (BGR), cờ phát hiện, số lượng khuôn mặt
+                processed_image_np, image_original_bgr, face_detected, num_faces = detect_and_draw_face(image_bytes, face_cascade)
+                processed_image = Image.fromarray(processed_image_np)
+                
+                # LƯU ẢNH GỐC (chưa vẽ khung) TẠM THỜI cho DeepFace so khớp
+                temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                TEMP_IMAGE_PATH = temp_file.name
+                temp_file.close() 
+                
+                # LƯU ẢNH GỐC BGR
+                cv2.imwrite(TEMP_IMAGE_PATH, image_original_bgr)
+                
+                # Thực hiện so khớp DeepFace
+                stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
 
-        # Xóa file tạm
-        if os.path.exists(TEMP_IMAGE_PATH):
-            os.remove(TEMP_IMAGE_PATH)
-            
-        st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
-        st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
+            # Xóa file tạm
+            if os.path.exists(TEMP_IMAGE_PATH):
+                os.remove(TEMP_IMAGE_PATH)
+                
+            st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
+            st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
 
-        st.markdown("---")
-        st.subheader("💡 Kết quả Điểm danh")
+            st.markdown("---")
+            st.subheader("💡 Kết quả Điểm danh")
 
-        # #Test
-        # stt_match = "2"
-        # distance = 0.01
-        
-        if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
-            st.balloons()
-            st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
-            st.markdown(f"""
-            * **STT trùng khớp:** **{stt_match}**
-            * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
-            """)
-            # Cập nhật checklist (KHÔNG Ghi ngược lên Drive, chỉ cập nhật session state)
-            update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
+            # #Test
+            # stt_match = "2"
+            # distance = 0.01
             
-        elif face_detected and num_faces == 1:
-            st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
-            # Lưu ảnh mới (truyền image_bytes và credentials)
-            update_checklist_and_save_new_data(None, selected_session, image_bytes, credentials) 
-            
-        elif face_detected and num_faces > 1:
-            st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
+            if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
+                st.balloons()
+                st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
+                st.markdown(f"""
+                * **STT trùng khớp:** **{stt_match}**
+                * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
+                """)
+                # Cập nhật checklist (KHÔNG Ghi ngược lên Drive, chỉ cập nhật session state)
+                update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
+                
+            elif face_detected and num_faces == 1:
+                st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
+                # Lưu ảnh mới (truyền image_bytes và credentials)
+                update_checklist_and_save_new_data(None, selected_session, image_bytes, credentials) 
+                
+            elif face_detected and num_faces > 1:
+                st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
 
-        else:
-            st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
-            st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
+            else:
+                st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
+                st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
 
     st.markdown("---")
     st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session)")
