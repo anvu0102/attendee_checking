@@ -10,13 +10,12 @@ from deepface import DeepFace
 import tempfile
 import time 
 import pandas as pd
-# --- CẦN THÊM CÁC THƯ VIỆN SAU ---
+# --- THƯ VIỆN GOOGLE DRIVE API VÀ OAUTH ---
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
-# ---------------------------------
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+# ----------------------------------------
 
 # --- 1. Thiết lập trang Streamlit ---
 st.set_page_config(
@@ -36,17 +35,18 @@ CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file']
 
 # TẢI CÁC THÔNG TIN TỪ ST.SECRETS
+# Đảm bảo các khóa này đã được định nghĩa trong file secrets.toml
 try:
     GDRIVE_CLIENT_ID = st.secrets["GDRIVE_CLIENT_ID"]
     GDRIVE_CLIENT_SECRET = st.secrets["GDRIVE_CLIENT_SECRET"]
     GDRIVE_DATASET_FOLDER_ID = st.secrets["GDRIVE_DATASET_ID"] 
     GDRIVE_CHECKLIST_ID = st.secrets["GDRIVE_CHECKLIST_ID"]
     GDRIVE_NEW_DATA_FOLDER_ID = st.secrets["GDRIVE_NEW_DATA_ID"]
-    # Tên khóa để lưu trữ credential trong session state
-    CREDENTIALS_SESSION_KEY = "gdrive_credentials"
+    # Khóa mới thêm vào để xác thực non-interactive
+    GDRIVE_REFRESH_TOKEN = st.secrets["GDRIVE_REFRESH_TOKEN"] 
 except KeyError as e:
     st.error(f"❌ Lỗi: Không tìm thấy khóa {e} trong st.secrets.")
-    st.info("Vui lòng đảm bảo bạn đã định nghĩa tất cả các khóa (CLIENT_ID, CLIENT_SECRET, DATASET_ID, CHECKLIST_ID, NEW_DATA_ID) trong file .streamlit/secrets.toml hoặc trong giao diện Secrets của Streamlit Cloud.")
+    st.info("Vui lòng đảm bảo bạn đã định nghĩa tất cả các khóa (CLIENT_ID, CLIENT_SECRET, DATASET_ID, CHECKLIST_ID, NEW_DATA_ID, REFRESH_TOKEN) trong file .streamlit/secrets.toml hoặc trong giao diện Secrets của Streamlit Cloud.")
     st.stop()
 
 # Các hằng số khác
@@ -55,29 +55,22 @@ CHECKLIST_FILENAME = "checklist.xlsx"
 CHECKLIST_SESSION_KEY = "attendance_df" 
 DETECTOR_BACKEND = "opencv"
 
+# ----------------------------------------------------------------------
+#                             CÁC HÀM THỰC TẾ
+# ----------------------------------------------------------------------
 
 # --- 1. HÀM XÁC THỰC OAUTH (REAL - Non-interactive cho Streamlit Cloud) ---
 @st.cache_resource(show_spinner="Đang tải và làm mới Access Token từ st.secrets...")
 def get_valid_access_token_real(client_id, client_secret):
     """ 
     THỰC TẾ: Lấy Credentials từ st.secrets (dạng non-interactive) và làm mới token.
-    Yêu cầu phải có 'GDRIVE_REFRESH_TOKEN' trong st.secrets.
+    Sử dụng Refresh Token đã lấy thủ công.
     """
     
-    # ⚠️ Loại bỏ luồng run_local_server và thay bằng luồng Refresh Token
-    
-    try:
-        # Lấy Refresh Token từ st.secrets
-        refresh_token = st.secrets["GDRIVE_REFRESH_TOKEN"]
-    except KeyError:
-        st.error("❌ Lỗi cấu hình: Không tìm thấy khóa 'GDRIVE_REFRESH_TOKEN' trong st.secrets.")
-        st.info("Để chạy trên Streamlit Cloud, bạn phải thêm Refresh Token vào cấu hình secrets.toml.")
-        return None
-    
-    # 1. Tạo đối tượng Credentials từ Refresh Token và Client Secret
+    # 1. Tạo đối tượng Credentials từ Refresh Token
     creds = Credentials(
         token=None,  # Bắt đầu không có access token
-        refresh_token=refresh_token,
+        refresh_token=GDRIVE_REFRESH_TOKEN,
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
@@ -101,8 +94,8 @@ def get_valid_access_token_real(client_id, client_secret):
     st.success("✅ Access Token đã sẵn sàng.")
     return creds
 
-# --- 2. HÀM TẢI FILE ĐƠN LẺ TỪ G-DRIVE (CẬP NHẬT) ---
-# Tải checklist XLSX
+
+# --- 2. HÀM TẢI FILE ĐƠN LẺ TỪ G-DRIVE (REAL) ---
 def download_file_from_gdrive(file_id, output_filename, credentials):
     """ Tải file từ Google Drive dùng Google Drive API. """
     
@@ -128,12 +121,15 @@ def download_file_from_gdrive(file_id, output_filename, credentials):
 @st.cache_resource(show_spinner="Đang tải Dataset Folder từ Google Drive...")
 def download_dataset_folder_real(folder_id, target_folder, credentials):
     """ THỰC TẾ: Tải toàn bộ nội dung folder Drive vào thư mục local. """
+    if os.path.isdir(target_folder) and len(os.listdir(target_folder)) > 0:
+        st.success(f"Dataset folder đã sẵn sàng tại '{target_folder}'. Bỏ qua tải xuống.")
+        return True
+
     if not os.path.exists(target_folder):
         os.makedirs(target_folder)
         
     try:
         service = build('drive', 'v3', credentials=credentials)
-        # Truy vấn tất cả file trong folder
         query = f"'{folder_id}' in parents and trashed = false"
         results = service.files().list(
             q=query, 
@@ -153,7 +149,6 @@ def download_dataset_folder_real(folder_id, target_folder, credentials):
             file_name = item['name']
             output_path = os.path.join(target_folder, file_name)
             
-            # Tải từng file
             request = service.files().get_media(fileId=file_id)
             with open(output_path, 'wb') as fh:
                 downloader = MediaIoBaseDownload(fh, request)
@@ -167,6 +162,7 @@ def download_dataset_folder_real(folder_id, target_folder, credentials):
     except Exception as e:
         st.error(f"❌ Lỗi khi tải Dataset Folder từ Drive: {e}")
         return False
+
 
 # --- 4. HÀM UPLOAD FILE MỚI (REAL) ---
 def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, credentials):
@@ -187,7 +183,6 @@ def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, credential
         }
         
         # Media to upload
-        from googleapiclient.http import MediaFileUpload
         media = MediaFileUpload(file_path, mimetype='image/jpeg', resumable=True)
         
         with st.spinner(f"Đang tải file '{drive_filename}' lên Drive..."):
@@ -206,7 +201,8 @@ def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, credential
         st.error(f"❌ Lỗi khi Upload file mới lên Drive: {e}")
         return False
 
-# --- HÀM TẢI CHECKLIST (CẬP NHẬT) ---
+
+# --- 5. HÀM TẢI CHECKLIST (REAL) ---
 @st.cache_data(show_spinner="Đang tải và xử lý Checklist (XLSX) từ Google Drive...")
 def load_checklist(file_id, filename, credentials):
     """ Tải checklist XLSX và đọc thành DataFrame. """
@@ -225,7 +221,10 @@ def load_checklist(file_id, filename, credentials):
             return None
     return None
 
-# --- TẢI CASCADE VÀ CÁC HÀM KHÁC (GIỮ NGUYÊN) ---
+# ----------------------------------------------------------------------
+#                             CÁC HÀM XỬ LÝ
+# ----------------------------------------------------------------------
+
 @st.cache_resource
 def load_face_cascade(url, filename):
     """ Tải Haar Cascade cho OpenCV. """
@@ -243,9 +242,10 @@ def load_face_cascade(url, filename):
 
 face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
-# --- 3. Hàm Phát hiện Khuôn mặt (Giữ nguyên) ---
+
+# --- Hàm Phát hiện Khuôn mặt (Giữ nguyên) ---
 def detect_and_draw_face(image_bytes, cascade):
-    # ... (code giữ nguyên) ...
+    """ Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh. """
     image_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     image_np = np.array(image_pil)
     image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
@@ -262,9 +262,10 @@ def detect_and_draw_face(image_bytes, cascade):
 
     return processed_image_rgb, len(faces) > 0, len(faces), image_bgr
 
-# --- 4. Hàm DeepFace Recognition (Giữ nguyên) ---
+
+# --- Hàm DeepFace Recognition (Giữ nguyên) ---
 def verify_face_against_dataset(target_image_path, dataset_folder):
-    # ... (code giữ nguyên) ...
+    """ Sử dụng DeepFace để so sánh ảnh đầu vào với dataset. """
     try:
         df_list = DeepFace.find(
             img_path=target_image_path, 
@@ -288,8 +289,8 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             st.error(f"❌ Lỗi DeepFace: {e}")
         return None, None
 
-# --- 6. Logic Ghi Dữ Liệu và Lưu Ảnh Mới (CẬP NHẬT) ---
 
+# --- Logic Ghi Dữ Liệu và Lưu Ảnh Mới ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, credentials):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
@@ -350,10 +351,12 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, cre
                 os.remove(TEMP_UPLOAD_PATH)
 
 
-# --- 7. Giao diện và Luồng Ứng dụng ---
+# ----------------------------------------------------------------------
+#                             GIAO DIỆN CHÍNH
+# ----------------------------------------------------------------------
 
 # LẤY CREDENTIALS ĐẦU TIÊN
-# Đây là nơi hệ thống sẽ cố gắng thực hiện luồng OAuth và lưu vào st.session_state.token
+# Hàm này sẽ sử dụng Refresh Token từ secrets để lấy Access Token
 CREDENTIALS = get_valid_access_token_real(GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET)
 
 if not CREDENTIALS:
