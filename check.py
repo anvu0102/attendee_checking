@@ -22,15 +22,19 @@ import datetime
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# Import hằng số và hàm từ config.py (GIẢ ĐỊNH)
-# Cần đảm bảo file config.py tồn tại với các hằng số và hàm này
+# Import hằng số và hàm từ config.py (ĐÃ GỘP TẤT CẢ CÁC HẰNG SỐ CẦN DÙNG VÀO ĐÂY)
+# --- KHẮC PHỤC LỖI NAMERROR BẰNG CÁCH IMPORT GDRIVE_DATASET_FOLDER_ID VÀ download_dataset_folder_real ---
 from config import (
     HAAR_CASCADE_URL, CASCADE_FILENAME, 
     DATASET_FOLDER, CHECKLIST_FILENAME, CHECKLIST_SESSION_KEY, 
     DETECTOR_BACKEND, GDRIVE_CHECKLIST_ID, GDRIVE_NEW_DATA_FOLDER_ID,
+    # Hằng số Drive bị thiếu:
+    GDRIVE_DATASET_FOLDER_ID,
+    # Hàm Drive bị thiếu:
     download_file_from_gdrive, upload_to_gdrive_real, list_files_in_gdrive_folder,
-    download_dataset_folder_real # Bổ sung nếu chưa có
+    download_dataset_folder_real 
 )
+# ------------------------------------------------------------------------------------------------------
 
 
 # ----------------------------------------------------------------------
@@ -283,7 +287,7 @@ def load_dataset_image(stt_match, dataset_folder):
                 
     return None
         
-# --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
+# --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (GIỮ NGUYÊN) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
@@ -405,7 +409,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
     return updated # Trả về cờ cập nhật
 
 
-# --- HÀM: CẬP NHẬT PLACEHOLDER CHECKLIST ---
+# --- HÀM: CẬP NHẬT PLACEHOLDER CHECKLIST (GIỮ NGUYÊN) ---
 def update_checklist_display(checklist_placeholder, current_df):
     """Cập nhật nội dung của placeholder checklist."""
     with checklist_placeholder.container():
@@ -450,7 +454,7 @@ def main_app(credentials):
     # 1. Tải Dataset & Checklist
     
     # Tải Folder Dataset (REAL)
-    # Giả định download_dataset_folder_real là hàm được import từ config
+    # BIẾN GDRIVE_DATASET_FOLDER_ID VÀ download_dataset_folder_real ĐÃ ĐƯỢC IMPORT Ở ĐẦU FILE
     dataset_ready = download_dataset_folder_real(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, credentials) 
     
     # === LOGIC: Tải từ Drive chỉ khi chưa có trong Session State ===
@@ -679,7 +683,7 @@ def main_app(credentials):
                 # -----------------------------------------------------------
                 
             # --- Vị trí XÓA file tạm mới: Xóa file tạm nếu không vào khối logic tự động clear 5s ---
-            # (Xóa nếu không tự động rerun, để tránh bị lỗi khi xử lý lần tiếp theo)
+            # (Chỉ xóa nếu không tự động rerun, vì nếu auto rerun thì logic xóa đã nằm trong khối IF trên)
             if not should_auto_rerun:
                  if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
                      os.remove(TEMP_IMAGE_PATH)
