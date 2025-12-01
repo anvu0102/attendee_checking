@@ -25,20 +25,20 @@ st.caption("Dataset và Checklist được tải từ Google Drive công khai.")
 HAAR_CASCADE_URL = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
 CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
 
-# Vui lòng thay thế chuỗi này bằng File ID của file ZIP dataset công khai của bạn.
-GDRIVE_DATASET_ID = "1-yAtAUD5FY69hlLYP_O3pfqRzKgompcd"
+# VUI LÒNG THAY THẾ CÁC ID DƯỚI ĐÂY BẰNG ID THỰC TẾ CỦA BẠN
+GDRIVE_DATASET_ID = "1-yAtAUD5FY69hlLYP_O3pfqRzKgompcd" # ID cho file ZIP dataset
 ZIP_FILENAME = "dataset_archive.zip" 
 DATASET_FOLDER = "dataset" 
 
-# Vui lòng thay thế chuỗi này bằng File ID của file CHECKLIST công khai của bạn.
-GDRIVE_CHECKLIST_ID = "1lcVBJZ55nQVoQYi6PK0iUV5Y_cCY74lv"
+GDRIVE_CHECKLIST_ID = "1lcVBJZ55nQVoQYi6PK0iUV5Y_cCY74lv" # ID cho file CSV checklist
 CHECKLIST_FILENAME = "checklist.csv" 
-CHECKLIST_SESSION_KEY = "attendance_df" # Key để lưu DataFrame trong session state
+CHECKLIST_SESSION_KEY = "attendance_df" 
 
 DETECTOR_BACKEND = "opencv"
-NEW_DATA_FOLDER = "new_data" # Thư mục local để lưu ảnh mới (mô phỏng)
+NEW_DATA_FOLDER = "new_data" # Thư mục local để lưu ảnh mới
 
-# --- Hàm tải file từ Google Drive (Tái sử dụng) ---
+
+# --- Hàm tải file từ Google Drive ---
 def download_file_from_gdrive(file_id, output_filename):
     """ Tải file công khai từ Google Drive. """
     DOWNLOAD_URL = f"https://drive.google.com/uc?export=download&id={file_id}"
@@ -46,7 +46,6 @@ def download_file_from_gdrive(file_id, output_filename):
         response = requests.get(DOWNLOAD_URL, stream=True)
         response.raise_for_status() 
         
-        # Xử lý trường hợp Google Drive cảnh báo file lớn
         if "confirm" in response.headers.get("Content-Disposition", ""):
             for key, value in response.cookies.items():
                 if key.startswith('download_warning'):
@@ -68,7 +67,6 @@ def download_file_from_gdrive(file_id, output_filename):
 @st.cache_resource
 def load_face_cascade(url, filename):
     """ Tải Haar Cascade cho OpenCV. """
-    # Nội dung giữ nguyên
     try:
         r = requests.get(url)
         if r.status_code == 200:
@@ -87,9 +85,7 @@ face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 @st.cache_resource(show_spinner="Đang tải và giải nén Dataset từ Google Drive (Chỉ chạy lần đầu)...")
 def download_and_extract_dataset(file_id, zip_name, target_folder):
     """ Tải và giải nén dataset ZIP. """
-    # Nội dung giữ nguyên, chỉ thay ID
     if file_id == "YOUR_GDRIVE_FILE_ID_HERE":
-        st.error("❌ Vui lòng thay thế File ID thực tế của file ZIP dataset.")
         return False
         
     deepface_cache = os.path.join(target_folder, 'representations_arcface.pkl')
@@ -118,16 +114,17 @@ def download_and_extract_dataset(file_id, zip_name, target_folder):
 def load_checklist(file_id, filename):
     """ Tải checklist CSV/Excel và đọc thành DataFrame. """
     if file_id == "YOUR_GDRIVE_CHECKLIST_ID_HERE":
-        st.error("❌ Vui lòng thay thế File ID thực tế của file checklist.")
         return None
     
-    if download_file_from_gdrive(file_id, filename):
+    # Kiểm tra xem file đã được tải/tạo chưa, nếu không thì tải từ Drive
+    if not os.path.exists(filename):
+        download_file_from_gdrive(file_id, filename)
+        
+    if os.path.exists(filename):
         try:
             # Giả định file checklist là CSV
             df = pd.read_csv(filename)
-            # Giả định cột đầu tiên là STT, chúng ta cần cột này để khớp với tên file
-            if os.path.exists(filename):
-                os.remove(filename)
+            # Không xóa file để giữ lại phiên bản gốc nếu có lỗi cập nhật
             return df
         except Exception as e:
             st.error(f"❌ Lỗi khi đọc file checklist: {e}. Đảm bảo file có định dạng CSV.")
@@ -135,15 +132,35 @@ def load_checklist(file_id, filename):
     return None
 
 # --- 3. Hàm Phát hiện Khuôn mặt (Dùng cho hiển thị khung) ---
-# Giữ nguyên hàm detect_and_draw_face
+def detect_and_draw_face(image_bytes, cascade):
+    """
+    Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh.
+    """
+    image_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    image_np = np.array(image_pil)
+    image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    
+    faces = []
+    if cascade is not None:
+        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
 
-# --- 4. Hàm DeepFace Recognition (Sử dụng detector_backend="opencv") ---
+    # Vẽ khung vuông lên ảnh
+    for (x, y, w, h) in faces:
+        cv2.rectangle(image_bgr, (x, y), (x + w, y + h), (255, 0, 0), 2)
+    
+    processed_image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+    return processed_image_rgb, len(faces) > 0, len(faces), image_bgr
+
+
+# --- 4. Hàm DeepFace Recognition ---
 def verify_face_against_dataset(target_image_path, dataset_folder):
     """
     Sử dụng DeepFace để so sánh ảnh đầu vào với dataset.
+    Trả về STT khớp (tên file) và khoảng cách.
     """
     try:
-        # THAY ĐỔI QUAN TRỌNG: Sử dụng detector_backend="opencv"
         df_list = DeepFace.find(
             img_path=target_image_path, 
             db_path=dataset_folder, 
@@ -156,28 +173,27 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
             best_match = df_list[0].iloc[0]
             identity_path = best_match['identity']
-            # Lấy tên file (STT) từ tên file (loại bỏ phần mở rộng)
+            # Lấy STT (tên file)
             stt_match = os.path.splitext(os.path.basename(identity_path))[0] 
-            # Lấy tên người từ path (ví dụ: dataset/111_Trần_Trung_Minh.jpg -> 111_Trần_Trung_Minh)
-            person_name = os.path.basename(os.path.dirname(identity_path))
             distance = best_match['ArcFace_cosine'] 
-            return stt_match, distance, person_name
+            return stt_match, distance
         
-        return None, None, None
+        return None, None
     
     except ValueError as e:
         if "Face could not be detected" in str(e):
+             # DeepFace.find() sẽ ném ValueError nếu không tìm thấy khuôn mặt
              st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp. Vui lòng thử lại ảnh rõ ràng hơn.")
         else:
             st.error(f"❌ Lỗi DeepFace: {e}")
-        return None, None, None
+        return None, None
     except Exception as e:
         st.error(f"❌ Lỗi trong quá trình so khớp DeepFace: {e}")
-        return None, None, None
+        return None, None
 
 # --- 5. Logic Ghi Dữ Liệu (Mô phỏng ghi lên Drive) ---
 
-def update_checklist_and_save_new_data(stt_match, captured_image_bgr, session_name):
+def update_checklist_and_save_new_data(stt_match, captured_image_bgr, session_name, image_bytes):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới (hoặc mô phỏng).
     """
@@ -189,16 +205,17 @@ def update_checklist_and_save_new_data(stt_match, captured_image_bgr, session_na
     
     # 1. Cập nhật Checklist (Đánh 'X')
     if stt_match is not None:
-        # Tìm dòng có STT tương ứng (Giả định cột đầu tiên của CSV/Excel là STT)
-        # Tên file trong dataset là STT. Chúng ta cần tìm dòng trong DF có STT này.
+        # stt_match là tên file (ví dụ: '111'), tương ứng với cột STT/MSSV trong checklist
         try:
-            # Chuyển STT sang string để tìm kiếm, nếu STT trong DF là int/float
-            stt_match_str = str(stt_match)
             # Lấy tên cột đầu tiên (ví dụ: 'Stt')
             stt_col = df.columns[0] 
             
-            # Tìm chỉ số dòng của STT
-            row_index = df[df[stt_col].astype(str).str.startswith(stt_match_str)].index
+            # Giả định STT/MSSV trong file name trùng với STT trong file checklist (cột đầu tiên)
+            # Chuyển sang string để tìm kiếm chính xác
+            stt_match_str = str(stt_match).split('_')[0] # Lấy phần STT trước dấu gạch dưới nếu có (VD: 111_ten -> 111)
+            
+            # Tìm chỉ số dòng của STT. Sử dụng .str.contains để linh hoạt hơn
+            row_index = df[df[stt_col].astype(str).str.contains(stt_match_str, regex=False)].index
             
             if not row_index.empty:
                 # Cập nhật cột Buổi được chọn
@@ -206,8 +223,8 @@ def update_checklist_and_save_new_data(stt_match, captured_image_bgr, session_na
                 st.session_state[CHECKLIST_SESSION_KEY] = df # Cập nhật Session State
                 
                 # --- Mô phỏng ghi lên Drive ---
-                st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{stt_match_str}** vào cột **{session_name}**.")
-                st.info("⚠️ **Mô phỏng:** Trong ứng dụng thực tế, DataFrame này cần được ghi trở lại file Drive.")
+                st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
+                st.info("⚠️ **Mô phỏng:** Trong ứng dụng thực tế, DataFrame này cần được ghi trở lại file Drive (ví dụ: ghi lại file CSV/Excel lên Drive).")
                 
             else:
                 st.warning(f"⚠️ Không tìm thấy STT **{stt_match_str}** trong checklist để cập nhật.")
@@ -234,7 +251,10 @@ def update_checklist_and_save_new_data(stt_match, captured_image_bgr, session_na
             os.makedirs(NEW_DATA_FOLDER)
             
         new_filepath = os.path.join(NEW_DATA_FOLDER, new_filename)
-        cv2.imwrite(new_filepath, captured_image_bgr)
+        
+        # Lưu ảnh gốc dưới dạng JPG
+        image_to_save = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        image_to_save.save(new_filepath, format='JPEG')
         
         # --- Mô phỏng ghi lên Drive ---
         st.success(f"✅ **Đã lưu ảnh mới** vào: **{NEW_DATA_FOLDER}/{new_filename}**")
@@ -253,22 +273,25 @@ if checklist_df is not None:
     
 st.markdown("---")
 
-if not dataset_ready or checklist_df is None:
-     st.warning("⚠️ Vui lòng cấu hình đúng File ID ZIP Dataset và File ID Checklist công khai và thử lại.")
-     st.stop() # Dừng ứng dụng nếu dataset/checklist chưa sẵn sàng
+if not dataset_ready:
+     st.warning("⚠️ Vui lòng cấu hình đúng File ID ZIP Dataset và thử lại.")
+     st.stop()
+     
+if checklist_df is None:
+     st.warning("⚠️ Lỗi tải hoặc đọc file Checklist. Vui lòng kiểm tra File ID và định dạng CSV.")
+     st.stop()
+
 
 st.info(f"Dataset đã tải xong. Checklist có {len(checklist_df)} người.")
 
 
 # 6.2 CHỌN BUỔI HỌC (Dropdown)
-# Lấy tên các cột Buổi học
 attendance_cols = [col for col in st.session_state[CHECKLIST_SESSION_KEY].columns if "Buổi" in col]
 
 if not attendance_cols:
      st.error("Không tìm thấy cột 'Buổi' trong checklist. Vui lòng kiểm tra lại cấu trúc file.")
      st.stop()
 
-# Dropdown chọn buổi
 selected_session = st.selectbox(
     "1️⃣ **Chọn Buổi Điểm Danh**", 
     attendance_cols, 
@@ -300,11 +323,11 @@ if captured_file is not None:
             TEMP_IMAGE_PATH = temp_file.name
             temp_file.close() 
             
+            # Ghi ảnh BGR vào file tạm để DeepFace xử lý
             cv2.imwrite(TEMP_IMAGE_PATH, image_bgr)
             
             # 3. Thực hiện so khớp DeepFace
-            # stt_match: Tên file trong dataset (ví dụ: '1')
-            stt_match, distance, person_name = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
+            stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
 
         # Xóa file tạm sau khi đã xử lý xong
         if os.path.exists(TEMP_IMAGE_PATH):
@@ -321,15 +344,17 @@ if captured_file is not None:
             st.balloons()
             st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
             st.markdown(f"""
-            * **Người trùng khớp:** **{stt_match}**
+            * **STT trùng khớp:** **{stt_match}**
             * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
             """)
-            update_checklist_and_save_new_data(stt_match, None, selected_session)
+            # Truyền None cho captured_image_bgr vì đây là trường hợp khớp
+            update_checklist_and_save_new_data(stt_match, None, selected_session, None)
             
         elif face_detected and num_faces == 1:
             # 4b. 1 khuôn mặt KHÔNG khớp -> Lưu ảnh mới
             st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
-            update_checklist_and_save_new_data(None, image_bgr, selected_session)
+            # Truyền image_bytes để lưu ảnh gốc
+            update_checklist_and_save_new_data(None, image_bgr, selected_session, image_bytes) 
             
         elif face_detected and num_faces > 1:
             # 4c. Nhiều khuôn mặt
