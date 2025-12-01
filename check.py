@@ -2,6 +2,7 @@
 """
 Chứa các hàm xử lý DeepFace, OpenCV, logic cập nhật checklist và giao diện Streamlit.
 Đã bổ sung: Checkbox để điều khiển việc hiển thị ảnh đã cắt và ảnh dataset/không khớp.
+Đã FIX LỖI: pyarrow.lib.ArrowTypeError bằng cách chuẩn hóa cột STT thành kiểu chuỗi (str) trong load_checklist.
 """
 import streamlit as st
 import cv2
@@ -152,6 +153,14 @@ def load_checklist(file_id, filename, _credentials):
         try:
             # ĐỌC FILE XLSX
             df = pd.read_excel(filename) 
+            
+            # === FIX LỖI PYARROW (ArrowTypeError): Chuẩn hóa cột STT thành STRING ===
+            # Giả định cột STT là cột đầu tiên
+            stt_col = df.columns[0]
+            # Chuyển đổi thành chuỗi và loại bỏ khoảng trắng dư thừa
+            df[stt_col] = df[stt_col].astype(str).str.strip() 
+            # =======================================================================
+            
             return df
         except Exception as e:
             st.error(f"❌ Lỗi khi đọc file checklist: {e}. Đảm bảo file có định dạng XLSX.")
@@ -300,7 +309,8 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             stt_col = df.columns[0] 
             
             # Tìm dòng khớp STT
-            row_index = df[df[stt_col].astype(str).str.contains(stt_match, regex=False)].index
+            # Do đã chuẩn hóa cột STT thành str trong load_checklist, ta chỉ cần so sánh bằng
+            row_index = df[df[stt_col] == stt_match].index
             
             if not row_index.empty:
                 
@@ -407,6 +417,7 @@ def update_checklist_display(checklist_placeholder, current_df):
     """Cập nhật nội dung của placeholder checklist."""
     with checklist_placeholder.container():
         st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session)")
+        # Lỗi ArrowTypeError sẽ được giải quyết nhờ chuẩn hóa kiểu dữ liệu
         st.dataframe(current_df)
         
         # Tạo file Excel trong bộ nhớ (sử dụng io.BytesIO)
