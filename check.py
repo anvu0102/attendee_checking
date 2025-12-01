@@ -96,7 +96,7 @@ def detect_and_draw_face(image_bytes, cascade):
 def verify_face_against_dataset(target_image_path, dataset_folder):
     """ 
     Sử dụng DeepFace để so sánh ảnh đầu vào (ĐÃ CẮT) với dataset. 
-    Trả về: (stt_match, distance, closest_match_path, closest_distance)
+    Lưu ý: Vì ảnh đã được cắt và lưu, ta đặt enforce_detection=False để DeepFace không cần tìm lại.
     """
     try:
         # DeepFace.find trả về danh sách DataFrame, thường chỉ có 1
@@ -107,38 +107,33 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             distance_metric="cosine",
             enforce_detection=False, 
             detector_backend=DETECTOR_BACKEND 
+            # KHÔNG CẦN CẮT NỮA VÌ ẢNH ĐÃ ĐƯỢC CẮT BÊN NGOÀI
         )
         
-        stt_match = None
-        distance = None
-        closest_match_path = None
-        closest_distance = None
-
         # Kiểm tra nếu có kết quả và DataFrame đầu tiên không rỗng
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
             best_match = df_list[0].iloc[0]
+            identity_path = best_match['identity']
+            print(identity_path)
+            # Lấy STT từ tên file (vd: 1_001.jpg -> 1)
+            stt_match = os.path.splitext(os.path.basename(identity_path))[0].split('_')[0]
+            distance = best_match['ArcFace_cosine'] 
             
-            # Lấy thông tin về ứng viên gần nhất
-            closest_match_path = best_match['identity']
-            
-            if pd.notna(best_match['ArcFace_cosine']):
-                closest_distance = float(best_match['ArcFace_cosine'])
-
-            # Giả định nếu DeepFace.find trả về kết quả (df_list không rỗng), 
-            # thì nó đã vượt qua ngưỡng so sánh (thành công)
-            if closest_distance is not None:
-                stt_match = os.path.splitext(os.path.basename(closest_match_path))[0].split('_')[0]
-                distance = closest_distance
+            # Đảm bảo distance là float trước khi trả về
+            if pd.notna(distance):
+                return stt_match, float(distance)
+            else:
+                st.error("❌ DeepFace không trả về độ tương đồng (distance) hợp lệ.")
+                return None, None
                 
-        # TRẢ VỀ: (stt_match, distance, closest_match_path, closest_distance)
-        return stt_match, distance, closest_match_path, closest_distance
-
+        return None, None
     except Exception as e:
+        # Chỉ in lỗi DeepFace nếu không phải lỗi không phát hiện
         if "Face could not be detected" in str(e):
              st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp. (Kiểm tra chất lượng ảnh)")
         else:
             st.error(f"❌ Lỗi DeepFace: {e}")
-        return None, None, None, None
+        return None, None
 
 
 # BỎ DECORATOR @st.cache_data để buộc tải lại checklist mỗi khi app load
@@ -419,9 +414,6 @@ def main_app(credentials):
     # Khởi tạo key cho camera input nếu chưa có
     if 'camera_input_key' not in st.session_state:
         st.session_state['camera_input_key'] = 0
-    # Khởi tạo key cho hiển thị so sánh thất bại
-    if 'show_comparison_details' not in st.session_state:
-        st.session_state['show_comparison_details'] = False # Default: Hide details
     # =================================
 
     # 1. Tải Dataset & Checklist
@@ -513,14 +505,6 @@ def main_app(credentials):
             # Lấy bytes của ảnh GỐC
             image_bytes_original = captured_file.getvalue() 
             
-            # --- RESET DETAIL DISPLAY STATE VÀ TẠM THỜI CHO ẢNH MỚI ---
-            st.session_state['show_comparison_details'] = False
-            if 'temp_closest_match_path' in st.session_state:
-                del st.session_state['temp_closest_match_path']
-            if 'temp_cropped_face_bytes' in st.session_state:
-                del st.session_state['temp_cropped_face_bytes']
-            # ---------------------------------------------------------
-            
             with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
                 
                 # --- THỰC HIỆN PHÁT HIỆN VÀ TRẢ VỀ TỌA ĐỘ KHUÔN MẶT ---
@@ -530,9 +514,7 @@ def main_app(credentials):
                 stt_match = None
                 distance = None
                 TEMP_IMAGE_PATH = None
-                closest_match_path = None
-                closest_distance = None
-
+                
                 # Kiểm tra chỉ có 1 khuôn mặt và tiến hành cắt
                 if face_detected and num_faces == 1:
                     # LẤY TỌA ĐỘ KHUÔN MẶT ĐẦU TIÊN
@@ -548,13 +530,6 @@ def main_app(credentials):
                     # CẮT ẢNH KHUÔN MẶT
                     cropped_face_bgr = image_original_bgr[y1:y2, x1:x2]
                     
-                    # LƯU ẢNH KHUÔN MẶT ĐÃ CẮT VÀO BYTES TẠM cho Session State
-                    cropped_face_pil = Image.fromarray(cv2.cvtColor(cropped_face_bgr, cv2.COLOR_BGR2RGB))
-                    buffer = io.BytesIO()
-                    cropped_face_pil.save(buffer, format='JPEG')
-                    cropped_face_bytes = buffer.getvalue() # <<< BYTES CỦA ẢNH ĐÃ CẮT
-
-                    
                     # LƯU ẢNH KHUÔN MẶT ĐÃ CẮT VÀO FILE TẠM cho DeepFace so khớp
                     temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
                     TEMP_IMAGE_PATH = temp_file.name
@@ -563,15 +538,11 @@ def main_app(credentials):
                     cv2.imwrite(TEMP_IMAGE_PATH, cropped_face_bgr)
                     
                     # Thực hiện so khớp DeepFace trên ảnh đã cắt
-                    stt_match, distance, closest_match_path, closest_distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
-                
-                # Trường hợp không phát hiện 1 khuôn mặt -> gán None cho các giá trị match
-                else:
-                    stt_match, distance, closest_match_path, closest_distance = None, None, None, None
+                    stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
                 
                 # --- End If face_detected and num_faces == 1 ---
                 
-            # Xóa file tạm sau khi đã đọc xong kết quả so khớp
+            # Xóa file tạm
             if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
                 os.remove(TEMP_IMAGE_PATH)
                 
@@ -583,7 +554,7 @@ def main_app(credentials):
                 st.markdown("---")
                 st.subheader("💡 Kết quả Điểm danh")
                 
-                if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị (MATCH THÀNH CÔNG)
+                if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
                     st.balloons()
                     st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
                     st.markdown(f"""
@@ -592,54 +563,26 @@ def main_app(credentials):
                     """)
                     
                     # Cập nhật checklist VÀ LƯU ẢNH GỐC THÀNH CÔNG
+                    # TRUYỀN BYTES CỦA ẢNH GỐC
                     updated = update_checklist_and_save_new_data(stt_match, selected_session, image_bytes_original, credentials)
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
+                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
                     time.sleep(5) # Đợi 5 giây
+                    # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
                     st.rerun() # Buộc rerun
                     # --------------------------------------
                     return 
                     
-                elif face_detected and num_faces == 1: # KHÔNG KHỚP (BUT FACE FOUND)
+                elif face_detected and num_faces == 1:
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
-                    
-                    # --- LƯU THÔNG TIN TẠM THỜI VÀO SESSION STATE CHO MỤC ĐÍCH SO SÁNH ---
-                    if closest_match_path and closest_distance is not None and cropped_face_bytes:
-                        st.session_state['temp_closest_match_path'] = closest_match_path
-                        st.session_state['temp_closest_distance'] = closest_distance
-                        st.session_state['temp_cropped_face_bytes'] = cropped_face_bytes
-                        
-                        # --- BỔ SUNG NÚT HIỂN THỊ ---
-                        if st.button("🔎 Hiển thị chi tiết so sánh", key="show_match_btn"):
-                            st.session_state['show_comparison_details'] = True
-                            st.rerun() # Rerun để hiển thị chi tiết
-                        # -----------------------------
-                        
-                    # Conditional display of details
-                    if st.session_state.get('show_comparison_details') and \
-                       st.session_state.get('temp_closest_match_path') and \
-                       st.session_state.get('temp_closest_distance') is not None:
-                        
-                        st.subheader("🔍 Ứng viên gần nhất")
-                        col_input, col_match = st.columns(2)
-                        
-                        # 1. Hiển thị ảnh đầu vào (ảnh đã crop từ bytes trong Session State)
-                        with col_input:
-                            st.image(st.session_state['temp_cropped_face_bytes'], caption="Ảnh đầu vào (Đã cắt)", use_column_width=True)
-                            
-                        # 2. Hiển thị ảnh ứng viên gần nhất từ dataset
-                        with col_match:
-                            st.image(st.session_state['temp_closest_match_path'], caption=f"Ứng viên Dataset ({os.path.basename(st.session_state['temp_closest_match_path'])})", use_column_width=True)
-                            
-                        st.markdown(f"**Độ tương đồng (Khoảng cách Cosine):** `{st.session_state['temp_closest_distance']:.4f}`")
-
-                    # Lưu ảnh gốc (since it's a non-match)
+                    # Lưu ảnh gốc (truyền image_bytes_original)
                     update_checklist_and_save_new_data(None, selected_session, image_bytes_original, credentials) 
                     
                 elif face_detected and num_faces > 1:
