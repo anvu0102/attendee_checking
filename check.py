@@ -376,7 +376,7 @@ def main_app(credentials):
         st.download_button(
             label="⬇️ Tải file Excel Checklist đã cập nhật",
             data=excel_data,
-            file_name="Checklist_DiemDanh_CapNhat.xlsx",
+            file_name="checklist.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Tải về file Excel (XLSX) chứa dữ liệu điểm danh mới nhất trong phiên làm việc hiện tại."
         )
