@@ -81,7 +81,7 @@ def get_valid_access_token_real(client_id, client_secret, refresh_token):
         st.error("❌ Lỗi: Credentials không có Refresh Token.")
         return None
         
-    st.success("✅ Access Token đã sẵn sàng.")
+    st.success("✅ Access Token is ready.")
     return creds
 
 
@@ -98,7 +98,7 @@ def download_file_from_gdrive(file_id, output_filename, _credentials):
             with st.spinner(f"Đang tải file {output_filename}..."):
                 while done is False:
                     status, done = downloader.next_chunk()
-        st.info(f"Đã tải thành công file: {output_filename}")
+        st.info(f"File successfully downloaded: {output_filename}")
         return True
     except Exception as e:
         st.error(f"❌ Lỗi khi tải file {output_filename} từ Drive: {e}")
@@ -110,7 +110,7 @@ def download_file_from_gdrive(file_id, output_filename, _credentials):
 def download_dataset_folder_real(folder_id, target_folder, _credentials):
     """ Tải toàn bộ nội dung folder Drive vào thư mục local. """
     if os.path.isdir(target_folder) and len(os.listdir(target_folder)) > 0:
-        st.success(f"Dataset folder đã sẵn sàng tại '{target_folder}'. Bỏ qua tải xuống.")
+        st.success(f"Dataset folder is ready at '{target_folder}'. Download skipped.")
         return True
 
     if not os.path.exists(target_folder):
