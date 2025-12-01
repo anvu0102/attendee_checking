@@ -64,13 +64,13 @@ face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 def detect_and_draw_face(image_bytes, cascade):
     """ 
     Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh. 
-    Trả về: ảnh có khung (RGB), ảnh gốc (BGR), cờ phát hiện, số lượng khuôn mặt.
+    Trả về: ảnh có khung (RGB), ảnh gốc (BGR), cờ phát hiện, số lượng khuôn mặt, TỌA ĐỘ (x,y,w,h).
     """
     
     # Đọc ảnh từ bytes
     image_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
     image_np = np.array(image_pil)
-    # Lấy ảnh gốc BGR để truyền cho DeepFace
+    # Lấy ảnh gốc BGR 
     image_original_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR) 
     
     # Tạo bản sao để vẽ khung
@@ -89,12 +89,15 @@ def detect_and_draw_face(image_bytes, cascade):
     
     processed_image_rgb = cv2.cvtColor(image_bgr_with_frame, cv2.COLOR_BGR2RGB)
 
-    # TRẢ VỀ: (ảnh có khung (RGB), ảnh GỐC (BGR), cờ phát hiện, số lượng khuôn mặt)
-    return processed_image_rgb, image_original_bgr, len(faces) > 0, len(faces)
+    # TRẢ VỀ: (ảnh có khung (RGB), ảnh GỐC (BGR), cờ phát hiện, số lượng khuôn mặt, TỌA ĐỘ KHUÔN MẶT)
+    return processed_image_rgb, image_original_bgr, len(faces) > 0, len(faces), faces
 
 
 def verify_face_against_dataset(target_image_path, dataset_folder):
-    """ Sử dụng DeepFace để so sánh ảnh đầu vào với dataset. """
+    """ 
+    Sử dụng DeepFace để so sánh ảnh đầu vào (ĐÃ CẮT) với dataset. 
+    Lưu ý: Vì ảnh đã được cắt và lưu, ta đặt enforce_detection=False để DeepFace không cần tìm lại.
+    """
     try:
         # DeepFace.find trả về danh sách DataFrame, thường chỉ có 1
         df_list = DeepFace.find(
@@ -104,6 +107,7 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             distance_metric="cosine",
             enforce_detection=False, 
             detector_backend=DETECTOR_BACKEND 
+            # KHÔNG CẦN CẮT NỮA VÌ ẢNH ĐÃ ĐƯỢC CẮT BÊN NGOÀI
         )
         
         # Kiểm tra nếu có kết quả và DataFrame đầu tiên không rỗng
@@ -256,6 +260,8 @@ def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
+    
+    Lưu ý: image_bytes ở đây luôn là bytes của ảnh GỐC từ camera.
     """
     if CHECKLIST_SESSION_KEY not in st.session_state:
         st.error("Lỗi: Không tìm thấy DataFrame checklist trong Session State.")
@@ -274,7 +280,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             
             if not row_index.empty:
                 
-                # --- LƯU ẢNH VÀO FOLDER THEO BUỔI (DÙ ĐÃ ĐIỂM DANH HAY CHƯA) ---
+                # --- LƯU ẢNH GỐC VÀO FOLDER THEO BUỔI (Điểm danh thành công) ---
                 stt = df.loc[row_index[0], stt_col]
                 session_folder_name = session_name.replace("Buổi ", "B")
                 
@@ -301,13 +307,13 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
                     temp_file_for_upload.close()
                     
                     try:
-                        # Lưu ảnh từ bytes (image_bytes) vào file tạm
+                        # Lưu ảnh từ bytes (image_bytes - LÚC NÀY LÀ ẢNH GỐC) vào file tạm
                         image_to_save = Image.open(io.BytesIO(image_bytes)).convert('RGB')
                         image_to_save.save(TEMP_UPLOAD_PATH, format='JPEG')
                         
                         # Upload ảnh vào folder con
                         upload_to_gdrive_real(TEMP_UPLOAD_PATH, target_folder_id, drive_filename, _credentials)
-                        st.info(f"🖼️ Đã lưu ảnh thành công: {session_folder_name}/{drive_filename}")
+                        st.info(f"🖼️ Đã lưu ảnh GỐC thành công: {session_folder_name}/{drive_filename}")
                     
                     except Exception as e:
                         st.error(f"❌ Lỗi khi lưu ảnh điểm danh thành công: {e}")
@@ -335,12 +341,12 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
         except Exception as e:
             st.error(f"Lỗi khi cập nhật checklist: {e}")
             
-    # 2. Lưu ảnh mới lên Drive (Nếu không khớp)
+    # 2. Lưu ảnh mới lên Drive (Nếu không khớp) - SỬ DỤNG ẢNH GỐC
     else: 
         # Cảnh báo không khớp
         st.warning("⚠️ Khuôn mặt không khớp. Đang lưu ảnh vào folder dữ liệu mới...")
         
-        # --- LOGIC LƯU ẢNH KHÔNG KHỚP (GIỮ NGUYÊN) ---
+        # --- LOGIC LƯU ẢNH GỐC KHÔNG KHỚP (GIỮ NGUYÊN) ---
         # Lấy số thứ tự tiếp theo dựa trên các file hiện có trên Drive
         next_counter = get_next_new_data_stt(_credentials)
         
@@ -354,12 +360,13 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
         temp_file_for_upload.close()
         
         try:
+            # image_bytes ở đây là ảnh gốc (full image)
             image_to_save = Image.open(io.BytesIO(image_bytes)).convert('RGB')
             image_to_save.save(TEMP_UPLOAD_PATH, format='JPEG')
             
             # Gọi hàm Upload Drive (REAL) - Truyền _credentials
             upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, _credentials)
-            st.info(f"🖼️ Đã lưu ảnh không khớp vào folder chung: {drive_filename}")
+            st.info(f"🖼️ Đã lưu ảnh GỐC không khớp vào folder chung: {drive_filename}")
 
         except Exception as e:
              st.error(f"❌ Lỗi khi tạo file tạm hoặc gọi hàm upload: {e}")
@@ -493,31 +500,50 @@ def main_app(credentials):
         # Tạo placeholder cho kết quả (để có thể xóa sau 5s)
         result_placeholder = st.empty()
 
-
         if captured_file is not None:
             
-            # Lấy bytes của ảnh (cần cho việc lưu)
-            image_bytes = captured_file.getvalue() 
+            # Lấy bytes của ảnh GỐC
+            image_bytes_original = captured_file.getvalue() 
             
             with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
                 
-                # Phát hiện khuôn mặt và vẽ khung
-                processed_image_np, image_original_bgr, face_detected, num_faces = detect_and_draw_face(image_bytes, face_cascade)
+                # --- THỰC HIỆN PHÁT HIỆN VÀ TRẢ VỀ TỌA ĐỘ KHUÔN MẶT ---
+                processed_image_np, image_original_bgr, face_detected, num_faces, faces = detect_and_draw_face(image_bytes_original, face_cascade)
                 processed_image = Image.fromarray(processed_image_np)
                 
-                # LƯU ẢNH GỐC (chưa vẽ khung) TẠM THỜI cho DeepFace so khớp
-                temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-                TEMP_IMAGE_PATH = temp_file.name
-                temp_file.close() 
+                stt_match = None
+                distance = None
+                TEMP_IMAGE_PATH = None
                 
-                # LƯU ẢNH GỐC BGR
-                cv2.imwrite(TEMP_IMAGE_PATH, image_original_bgr)
-                
-                # Thực hiện so khớp DeepFace
-                stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
+                # Kiểm tra chỉ có 1 khuôn mặt và tiến hành cắt
+                if face_detected and num_faces == 1:
+                    # LẤY TỌA ĐỘ KHUÔN MẶT ĐẦU TIÊN
+                    (x, y, w, h) = faces[0]
+                    
+                    # TĂNG KÍCH THƯỚC KHUNG (Padding 20%)
+                    padding = int(0.2 * w)
+                    x1 = max(0, x - padding)
+                    y1 = max(0, y - padding)
+                    x2 = min(image_original_bgr.shape[1], x + w + padding)
+                    y2 = min(image_original_bgr.shape[0], y + h + padding)
 
+                    # CẮT ẢNH KHUÔN MẶT
+                    cropped_face_bgr = image_original_bgr[y1:y2, x1:x2]
+                    
+                    # LƯU ẢNH KHUÔN MẶT ĐÃ CẮT VÀO FILE TẠM cho DeepFace so khớp
+                    temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                    TEMP_IMAGE_PATH = temp_file.name
+                    temp_file.close() 
+                    
+                    cv2.imwrite(TEMP_IMAGE_PATH, cropped_face_bgr)
+                    
+                    # Thực hiện so khớp DeepFace trên ảnh đã cắt
+                    stt_match, distance = verify_face_against_dataset(TEMP_IMAGE_PATH, DATASET_FOLDER)
+                
+                # --- End If face_detected and num_faces == 1 ---
+                
             # Xóa file tạm
-            if os.path.exists(TEMP_IMAGE_PATH):
+            if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
                 os.remove(TEMP_IMAGE_PATH)
                 
             # HIỂN THỊ KẾT QUẢ TRONG PLACEHOLDER
@@ -536,8 +562,9 @@ def main_app(credentials):
                     * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
                     """)
                     
-                    # Cập nhật checklist VÀ LƯU ẢNH THÀNH CÔNG (có xử lý trùng tên)
-                    updated = update_checklist_and_save_new_data(stt_match, selected_session, image_bytes, credentials)
+                    # Cập nhật checklist VÀ LƯU ẢNH GỐC THÀNH CÔNG
+                    # TRUYỀN BYTES CỦA ẢNH GỐC
+                    updated = update_checklist_and_save_new_data(stt_match, selected_session, image_bytes_original, credentials)
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
@@ -545,8 +572,8 @@ def main_app(credentials):
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
-                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 2 GIÂY ---
-                    time.sleep(2) # Đợi 2 giây
+                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
+                    time.sleep(5) # Đợi 5 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
                     st.rerun() # Buộc rerun
@@ -555,8 +582,8 @@ def main_app(credentials):
                     
                 elif face_detected and num_faces == 1:
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
-                    # Lưu ảnh mới (truyền image_bytes và credentials)
-                    update_checklist_and_save_new_data(None, selected_session, image_bytes, credentials) 
+                    # Lưu ảnh gốc (truyền image_bytes_original)
+                    update_checklist_and_save_new_data(None, selected_session, image_bytes_original, credentials) 
                     
                 elif face_detected and num_faces > 1:
                     st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
