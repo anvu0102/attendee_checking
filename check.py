@@ -392,7 +392,7 @@ def main_app(credentials):
                     time.sleep(5) # Đợi 5 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
-                    st.experimental_rerun() # Buộc rerun để reset camera input widget
+                    st.rerun() # Buộc rerun để reset camera input widget
                     # --------------------------------------
                     return 
 
