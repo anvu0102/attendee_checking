@@ -26,12 +26,12 @@ HAAR_CASCADE_URL = "https://raw.githubusercontent.com/opencv/opencv/master/data/
 CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
 
 # Vui lòng thay thế chuỗi này bằng File ID của file ZIP dataset công khai của bạn.
-GDRIVE_DATASET_ID = "1qX4I983WrBYMWdQals3g_ijbeepf8BtG" # ID mẫu
+GDRIVE_DATASET_ID = "1-yAtAUD5FY69hlLYP_O3pfqRzKgompcd"
 ZIP_FILENAME = "dataset_archive.zip" 
 DATASET_FOLDER = "dataset" 
 
 # Vui lòng thay thế chuỗi này bằng File ID của file CHECKLIST công khai của bạn.
-GDRIVE_CHECKLIST_ID = "1aBcDeFgHiJkLmNoPqRsTuVwXyZ01234" # Dùng ID mẫu tạm thời
+GDRIVE_CHECKLIST_ID = "1lcVBJZ55nQVoQYi6PK0iUV5Y_cCY74lv"
 CHECKLIST_FILENAME = "checklist.csv" 
 CHECKLIST_SESSION_KEY = "attendance_df" # Key để lưu DataFrame trong session state
 
