@@ -12,13 +12,14 @@ import tempfile
 import pandas as pd
 from deepface import DeepFace
 import requests
+import re # Thêm thư viện re để xử lý regex
 
 # Import hằng số và hàm từ config.py
 from config import (
     HAAR_CASCADE_URL, CASCADE_FILENAME, 
     DATASET_FOLDER, CHECKLIST_FILENAME, CHECKLIST_SESSION_KEY, 
     DETECTOR_BACKEND, GDRIVE_CHECKLIST_ID, GDRIVE_NEW_DATA_FOLDER_ID,
-    download_file_from_gdrive, upload_to_gdrive_real
+    download_file_from_gdrive, upload_to_gdrive_real, list_files_in_gdrive_folder
 )
 
 
@@ -125,7 +126,39 @@ def load_checklist(file_id, filename, _credentials):
             return None
     return None
 
+# --- HÀM TÌM SỐ THỨ TỰ LỚN NHẤT TRONG FOLDER NEW DATA ---
+def get_next_new_data_stt(_credentials):
+    """
+    Tìm số thứ tự lớn nhất trong folder NEW_DATA_FOLDER_ID trên Drive
+    để đặt tên cho file mới (ví dụ: B1_1.jpg, B1_2.jpg, ...).
+    Trả về số thứ tự tiếp theo (integer).
+    """
+    
+    # 1. Lấy danh sách tên file từ Drive
+    file_list = list_files_in_gdrive_folder(GDRIVE_NEW_DATA_FOLDER_ID, _credentials)
+    
+    max_stt = 0
+    # Biểu thức chính quy để tìm số sau dấu gạch dưới (ví dụ: BX_123.jpg -> 123)
+    # Pattern: [Buổi]<số>_<số>.jpg
+    # Chúng ta chỉ quan tâm đến phần số cuối cùng trước .jpg
+    pattern = re.compile(r'B\d+_(\d+)\.jpe?g$', re.IGNORECASE)
+    
+    for filename in file_list:
+        match = pattern.search(filename)
+        if match:
+            try:
+                # Lấy số thứ tự (group 1)
+                stt = int(match.group(1))
+                if stt > max_stt:
+                    max_stt = stt
+            except ValueError:
+                # Bỏ qua nếu không phải là số
+                continue
 
+    # Trả về số thứ tự tiếp theo
+    return max_stt + 1
+
+# --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
@@ -162,15 +195,12 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             
     # 2. Lưu ảnh mới lên Drive (Nếu không khớp)
     else: 
-        if 'new_data_counter' not in st.session_state:
-            st.session_state['new_data_counter'] = 0
-            
-        st.session_state['new_data_counter'] += 1
-        new_counter = st.session_state['new_data_counter']
+        # Lấy số thứ tự tiếp theo dựa trên các file hiện có trên Drive
+        next_counter = get_next_new_data_stt(_credentials)
         
         # Tạo tên file theo định dạng B<buổi>_<counter>.jpg
         session_num = session_name.replace("Buổi ", "")
-        drive_filename = f"B{session_num}_{new_counter}.jpg" 
+        drive_filename = f"B{session_num}_{next_counter}.jpg" 
         
         # --- TẠO FILE TẠM ĐỂ UPLOAD ---
         temp_file_for_upload = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
