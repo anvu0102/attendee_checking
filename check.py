@@ -366,7 +366,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             
             # Gọi hàm Upload Drive (REAL) - Truyền _credentials
             upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, _credentials)
-            st.info(f"🖼️ Đã lưu ảnh GỐC không khớp vào folder chung: {drive_filename}")
+            # st.info(f"🖼️ Đã lưu ảnh GỐC không khớp vào folder chung: {drive_filename}")
 
         except Exception as e:
              st.error(f"❌ Lỗi khi tạo file tạm hoặc gọi hàm upload: {e}")
