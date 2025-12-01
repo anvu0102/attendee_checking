@@ -13,6 +13,8 @@ import pandas as pd
 from deepface import DeepFace
 import requests
 import re 
+import time # <<< THÊM THƯ VIỆN TIME
+
 # THƯ VIỆN BỔ SUNG CHO GOOGLE DRIVE API
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -32,6 +34,7 @@ from config import (
 
 @st.cache_resource(show_spinner="Đang tải Haar Cascade...")
 def load_face_cascade(url, filename):
+# ... (Phần code này không thay đổi)
     """ Tải Haar Cascade cho OpenCV. """
     try:
         if not os.path.exists(filename):
@@ -59,6 +62,7 @@ face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
 
 def detect_and_draw_face(image_bytes, cascade):
+# ... (Phần code này không thay đổi)
     """ 
     Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh. 
     Trả về: ảnh có khung (RGB), ảnh gốc (BGR), cờ phát hiện, số lượng khuôn mặt.
@@ -91,6 +95,7 @@ def detect_and_draw_face(image_bytes, cascade):
 
 
 def verify_face_against_dataset(target_image_path, dataset_folder):
+# ... (Phần code này không thay đổi)
     """ Sử dụng DeepFace để so sánh ảnh đầu vào với dataset. """
     try:
         # DeepFace.find trả về danh sách DataFrame, thường chỉ có 1
@@ -131,6 +136,7 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
 
 # BỎ DECORATOR @st.cache_data để buộc tải lại checklist mỗi khi app load
 def load_checklist(file_id, filename, _credentials):
+# ... (Phần code này không thay đổi)
     """ 
     Tải checklist XLSX và đọc thành DataFrame. 
     Hàm này **luôn** tải lại file từ Drive để lấy dữ liệu mới nhất.
@@ -152,6 +158,7 @@ def load_checklist(file_id, filename, _credentials):
 
 # --- HÀM TÌM SỐ THỨ TỰ LỚN NHẤT TRONG FOLDER NEW DATA ---
 def get_next_new_data_stt(_credentials):
+# ... (Phần code này không thay đổi)
     """
     Tìm số thứ tự lớn nhất trong folder NEW_DATA_FOLDER_ID trên Drive
     để đặt tên cho file mới (ví dụ: B1_1.jpg, B1_2.jpg, ...).
@@ -186,6 +193,7 @@ def get_next_new_data_stt(_credentials):
 
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
+# ... (Phần code này không thay đổi)
     """
     Cập nhật DataFrame checklist và lưu ảnh mới lên Drive.
     """
@@ -256,6 +264,10 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
 #                             GIAO DIỆN CHÍNH (main_app)
 # ----------------------------------------------------------------------
 
+# Khởi tạo key cho camera input nếu chưa có
+if 'camera_input_key' not in st.session_state:
+    st.session_state['camera_input_key'] = 0
+
 def main_app(credentials):
     """
     Hàm chứa toàn bộ logic giao diện Streamlit.
@@ -316,7 +328,17 @@ def main_app(credentials):
     # 3. Chụp Ảnh và Xử Lý
     # --- THAY ĐỔI: Chỉ hiển thị camera input nếu đã chọn buổi ---
     if selected_session:
-        captured_file = st.camera_input("2️⃣ Chụp ảnh điểm danh:")
+        
+        # --- THÊM KEY VÀO CAMERA INPUT ---
+        captured_file = st.camera_input(
+            "2️⃣ Chụp ảnh điểm danh:", 
+            key=f"camera_input_{st.session_state['camera_input_key']}" # Sử dụng key từ session state
+        )
+        # ----------------------------------
+        
+        # Tạo placeholder cho kết quả (để có thể xóa sau 5s)
+        result_placeholder = st.empty()
+
 
         if captured_file is not None:
             
@@ -344,38 +366,49 @@ def main_app(credentials):
             if os.path.exists(TEMP_IMAGE_PATH):
                 os.remove(TEMP_IMAGE_PATH)
                 
-            st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
-            st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
+            # HIỂN THỊ KẾT QUẢ TRONG PLACEHOLDER
+            with result_placeholder.container():
+                st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
+                st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
 
-            st.markdown("---")
-            st.subheader("💡 Kết quả Điểm danh")
+                st.markdown("---")
+                st.subheader("💡 Kết quả Điểm danh")
 
-            # #Test
-            # stt_match = "2"
-            # distance = 0.01
+                # #Test
+                # stt_match = "2"
+                # distance = 0.01
+                
+                if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
+                    st.balloons()
+                    st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
+                    st.markdown(f"""
+                    * **STT trùng khớp:** **{stt_match}**
+                    * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
+                    """)
+                    # Cập nhật checklist (KHÔNG Ghi ngược lên Drive, chỉ cập nhật session state)
+                    update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
+                    
+                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
+                    time.sleep(5) # Đợi 5 giây
+                    # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
+                    st.session_state['camera_input_key'] += 1 
+                    st.experimental_rerun() # Buộc rerun để reset camera input widget
+                    # --------------------------------------
+                    
+                elif face_detected and num_faces == 1:
+                    st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
+                    # Lưu ảnh mới (truyền image_bytes và credentials)
+                    update_checklist_and_save_new_data(None, selected_session, image_bytes, credentials) 
+                    
+                elif face_detected and num_faces > 1:
+                    st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
+
+                else:
+                    st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
+                    st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
+                    
+            # --- End result_placeholder.container() ---
             
-            if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
-                st.balloons()
-                st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
-                st.markdown(f"""
-                * **STT trùng khớp:** **{stt_match}**
-                * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
-                """)
-                # Cập nhật checklist (KHÔNG Ghi ngược lên Drive, chỉ cập nhật session state)
-                update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
-                
-            elif face_detected and num_faces == 1:
-                st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
-                # Lưu ảnh mới (truyền image_bytes và credentials)
-                update_checklist_and_save_new_data(None, selected_session, image_bytes, credentials) 
-                
-            elif face_detected and num_faces > 1:
-                st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
-
-            else:
-                st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
-                st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
-
     st.markdown("---")
     st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session)")
     if CHECKLIST_SESSION_KEY in st.session_state:
