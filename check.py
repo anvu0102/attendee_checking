@@ -582,7 +582,7 @@ def main_app(credentials):
                 
             # Xóa file tạm
             if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
-                # KHÔNG XÓA NẾU CẦN HIỂN THỊ SO SÁNH (SẼ XÓA SAU KHI RERUN)
+                # KHÔNG XÓA NẾU CẦN HIỂN THỊ SO SÁNH (SẼ XÓA SAU KHI RERUN HOẶC KHI CHỤP LẠI)
                 pass 
                 
             # HIỂN THỊ KẾT QUẢ TRONG PLACEHOLDER
@@ -610,7 +610,7 @@ def main_app(credentials):
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
-                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức
+                         # Nếu có cập nhật, vẽ lại bảng ngay lập lập tức
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
@@ -629,7 +629,7 @@ def main_app(credentials):
                     # Lưu ảnh gốc (truyền image_bytes_original)
                     update_checklist_and_save_new_data(None, selected_session, image_bytes_original, credentials) 
                     
-                    # --- LOGIC HIỂN THỊ ẢNH TỪ CAMERA VÀ ẢNH GẦN NHẤT TỪ DATASET ---
+                    # --- LOGIC HIỂN THỊ ẢNH TỪ CAMERA VÀ ẢNH GẦN NHẤT TỪ DATASET (YÊU CẦU CỦA USER) ---
                     if best_match_identity_path is not None:
                         st.markdown("---")
                         
@@ -657,8 +657,7 @@ def main_app(credentials):
                             with col2:
                                 st.image(best_match_identity_path, caption=f"Ảnh gần nhất từ Dataset (STT: {stt_closest})", use_column_width=True)
                     
-                    # --- LOGIC TỰ ĐỘNG CLEAR (ĐÃ BỊ XÓA THEO YÊU CẦU) ---
-                    # Giữ nguyên kết quả trên màn hình
+                    # --- KHÔNG CÓ LOGIC RERUN TỰ ĐỘNG THEO YÊU CẦU CỦA USER ---
                     
                 elif face_detected and num_faces > 1:
                     st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
