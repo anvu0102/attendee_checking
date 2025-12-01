@@ -13,6 +13,9 @@ import pandas as pd
 from deepface import DeepFace
 import requests
 import re 
+# THƯ VIỆN BỔ SUNG CHO GOOGLE DRIVE API
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
 # Import hằng số và hàm từ config.py
 from config import (
@@ -107,7 +110,14 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             # Lấy STT từ tên file (vd: 1_001.jpg -> 1)
             stt_match = os.path.splitext(os.path.basename(identity_path))[0].split('_')[0]
             distance = best_match['ArcFace_cosine'] 
-            return stt_match, distance
+            
+            # Đảm bảo distance là float trước khi trả về
+            if pd.notna(distance):
+                return stt_match, float(distance)
+            else:
+                st.error("❌ DeepFace không trả về độ tương đồng (distance) hợp lệ.")
+                return None, None
+                
         return None, None
     except Exception as e:
         # Chỉ in lỗi DeepFace nếu không phải lỗi không phát hiện
@@ -168,6 +178,48 @@ def get_next_new_data_stt(_credentials):
     # Trả về số thứ tự tiếp theo
     return max_stt + 1
 
+# --- HÀM MỚI: GHI NGƯỢC (WRITE-BACK) CHECKLIST LÊN DRIVE ---
+def write_back_checklist_to_gdrive(df, file_id, filename, credentials):
+    """
+    Ghi ngược DataFrame đã cập nhật vào file XLSX hiện có trên Google Drive.
+    Sử dụng files().update() với MediaFileUpload.
+    """
+    st.info("🔄 Đang ghi ngược (Write-Back) dữ liệu điểm danh lên Google Drive...")
+    
+    # 1. Lưu DataFrame vào file tạm XLSX
+    temp_excel_file = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    temp_excel_path = temp_excel_file.name
+    temp_excel_file.close()
+
+    try:
+        # Ghi DataFrame vào file Excel tạm thời
+        # Lưu ý: index=False để không thêm cột chỉ mục (index) vào file Excel
+        df.to_excel(temp_excel_path, index=False)
+        
+        # 2. Kết nối tới Drive API
+        drive_service = build('drive', 'v3', credentials=credentials)
+
+        # 3. Tạo MediaFileUpload object
+        media = MediaFileUpload(
+            temp_excel_path, 
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+        # 4. Thực hiện lệnh Update (Ghi đè file có sẵn)
+        file = drive_service.files().update(
+            fileId=file_id,
+            media_body=media,
+        ).execute()
+
+        st.success(f"💾 **Ghi ngược thành công!** File '{filename}' trên Drive đã được cập nhật.")
+
+    except Exception as e:
+        st.error(f"❌ Lỗi khi ghi ngược file Drive ID {file_id}: {e}")
+    finally:
+        # Xóa file tạm
+        if os.path.exists(temp_excel_path):
+            os.remove(temp_excel_path)
+
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
     """
@@ -194,7 +246,16 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
                     st.session_state[CHECKLIST_SESSION_KEY] = df 
                     
                     st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
-                    st.info(f"⚠️ **Cần thêm chức năng ghi ngược (Write-Back) DataFrame này lên file XLSX Drive ID: {GDRIVE_CHECKLIST_ID}**.")
+                    
+                    # --- BỔ SUNG CHỨC NĂNG GHI NGƯỢC (WRITE-BACK) ---
+                    # Gọi hàm ghi ngược lên Drive
+                    write_back_checklist_to_gdrive(
+                        df=df, 
+                        file_id=GDRIVE_CHECKLIST_ID, 
+                        filename=CHECKLIST_FILENAME, 
+                        credentials=_credentials
+                    )
+                    # ---------------------------------------------------
                 else:
                     st.info(f"Người có STT **{df.loc[row_index[0], stt_col]}** đã được điểm danh trong **{session_name}**.")
                 
@@ -318,17 +379,15 @@ def main_app(credentials):
 
         st.markdown("---")
         st.subheader("💡 Kết quả Điểm danh")
-
-        stt_match = "2"
-        distance =  0.0512
-        if stt_match:
+        
+        if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
             st.balloons()
             st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
             st.markdown(f"""
             * **STT trùng khớp:** **{stt_match}**
             * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
             """)
-            # Cập nhật checklist (truyền credentials)
+            # Cập nhật checklist (truyền credentials) - Trong hàm này đã có thêm logic Write-Back
             update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
             
         elif face_detected and num_faces == 1:
