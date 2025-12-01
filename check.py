@@ -629,33 +629,29 @@ def main_app(credentials):
                     # Lưu ảnh gốc (truyền image_bytes_original)
                     update_checklist_and_save_new_data(None, selected_session, image_bytes_original, credentials) 
                     
-                    # --- LOGIC HIỂN THỊ ẢNH TỪ CAMERA VÀ ẢNH GẦN NHẤT TỪ DATASET (YÊU CẦU CỦA USER) ---
+                    # --- LOGIC HIỂN THỊ ẢNH TỪ CAMERA VÀ ẢNH GẦN NHẤT TỪ DATASET (LUÔN HIỂN THỊ THEO YÊU CẦU MỚI) ---
                     if best_match_identity_path is not None:
                         st.markdown("---")
                         
                         # Lấy STT của ảnh gần nhất để hiển thị
                         stt_closest = os.path.basename(best_match_identity_path).split('_')[0].split('.')[0]
                         
-                        # Tạo checkbox để hiển thị ảnh
-                        show_comparison = st.checkbox(
-                            f"🔍 **Hiển thị so sánh với ảnh dataset gần nhất** (STT: {stt_closest})"
-                        )
-
-                        if show_comparison:
-                            st.info(f"Độ tương đồng (Khoảng cách Cosine) của cặp ảnh này: `{distance_of_best_match:.4f}`")
+                        # Hiển thị thông tin so sánh (Score và Header)
+                        st.subheader(f"🔍 **So sánh với ảnh Dataset gần nhất** (STT: {stt_closest})")
+                        st.info(f"Độ tương đồng (Khoảng cách Cosine) của cặp ảnh này: `{distance_of_best_match:.4f}`")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        # Cột 1: Ảnh từ Camera (Đã cắt và lưu trong TEMP_IMAGE_PATH)
+                        with col1:
+                            if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
+                                st.image(TEMP_IMAGE_PATH, caption="Ảnh Khuôn mặt từ Camera (Đã cắt)", use_column_width=True)
+                            else:
+                                st.error("Lỗi: Không tìm thấy ảnh khuôn mặt đã cắt để so sánh.")
                             
-                            col1, col2 = st.columns(2)
-                            
-                            # Cột 1: Ảnh từ Camera (Đã cắt và lưu trong TEMP_IMAGE_PATH)
-                            with col1:
-                                if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
-                                    st.image(TEMP_IMAGE_PATH, caption="Ảnh Khuôn mặt từ Camera (Đã cắt)", use_column_width=True)
-                                else:
-                                    st.error("Lỗi: Không tìm thấy ảnh khuôn mặt đã cắt để so sánh.")
-                                
-                            # Cột 2: Ảnh gần nhất từ Dataset
-                            with col2:
-                                st.image(best_match_identity_path, caption=f"Ảnh gần nhất từ Dataset (STT: {stt_closest})", use_column_width=True)
+                        # Cột 2: Ảnh gần nhất từ Dataset
+                        with col2:
+                            st.image(best_match_identity_path, caption=f"Ảnh gần nhất từ Dataset (STT: {stt_closest})", use_column_width=True)
                     else:
                         st.info("ℹ️ **Không thể tìm thấy khuôn mặt gần nhất trong Dataset** để thực hiện so sánh chi tiết. Vui lòng kiểm tra chất lượng ảnh hoặc dataset.")
                     
