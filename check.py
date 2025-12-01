@@ -184,10 +184,49 @@ def get_next_new_data_stt(_credentials):
     # Trả về số thứ tự tiếp theo
     return max_stt + 1
 
+# --- HÀM MỚI: TÌM HOẶC TẠO FOLDER CON TRÊN DRIVE ---
+@st.cache_resource(show_spinner="Đang kiểm tra/tạo folder Drive...")
+def get_or_create_drive_folder(parent_id, folder_name, _credentials):
+    """
+    Tìm ID của folder con trong parent_id. Nếu chưa tồn tại, tạo mới.
+    Trả về ID của folder con.
+    """
+    try:
+        service = build('drive', 'v3', credentials=_credentials)
+        
+        # 1. Tìm kiếm folder
+        query = (
+            f"mimeType='application/vnd.google-apps.folder' and "
+            f"name='{folder_name}' and "
+            f"'{parent_id}' in parents and "
+            f"trashed=false"
+        )
+        
+        results = service.files().list(q=query, fields="files(id, name)").execute()
+        items = results.get('files', [])
+        
+        if items:
+            # Đã tìm thấy
+            st.info(f"📁 Folder Drive: Đã tìm thấy '{folder_name}'.")
+            return items[0]['id']
+        else:
+            # 2. Tạo folder mới nếu chưa tồn tại
+            file_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [parent_id]
+            }
+            file = service.files().create(body=file_metadata, fields='id').execute()
+            st.success(f"📁 Folder Drive: Đã tạo folder mới '{folder_name}'.")
+            return file.get('id')
+
+    except Exception as e:
+        st.error(f"❌ Lỗi Drive API khi kiểm tra/tạo folder: {e}")
+        return None
+        
 # --- HÀM GHI ĐÈ FILE CHECKLIST LÊN DRIVE BẰNG ID (KHÔNG DÙNG NỮA) ---
 def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
-    """ Tải file local lên Drive, ghi đè file có ID tương ứng. """
-    # Giữ lại hàm này đề phòng lỗi Undefined, nhưng logic sẽ KHÔNG được gọi
+    # Hàm này không còn được sử dụng trong giải pháp hiện tại
     try:
         service = build('drive', 'v3', credentials=_credentials)
         media = MediaFileUpload(local_path,
@@ -198,7 +237,7 @@ def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
                                media_body=media).execute()
         return True
     except Exception as e:
-        st.error(f"❌ Lỗi Drive API khi cập nhật checklist: {e}")
+        # st.error(f"❌ Lỗi Drive API khi cập nhật checklist: {e}")
         return False
         
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
@@ -230,9 +269,42 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
                     
                     st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
                     
-                    # === ĐÃ XÓA LOGIC GHI NGƯỢC LÊN DRIVE ĐỂ LƯU TRẠNG THÁI ===
-                    # Bỏ qua phần ghi file Excel và gọi hàm overwrite_gdrive_checklist_file
-                    # Dữ liệu chỉ được lưu trong Session State.
+                    # === BỔ SUNG: LƯU ẢNH VỪA CHỤP VÀO FOLDER THEO BUỔI ===
+                    # 1. Xác định tên folder con (ví dụ: B1)
+                    session_folder_name = session_name.replace("Buổi ", "B")
+                    
+                    # 2. Tìm hoặc tạo folder con trong GDRIVE_NEW_DATA_FOLDER_ID
+                    target_folder_id = get_or_create_drive_folder(
+                        GDRIVE_NEW_DATA_FOLDER_ID, 
+                        session_folder_name, 
+                        _credentials
+                    )
+                    
+                    if target_folder_id:
+                        # 3. Tạo tên file: B1_{STT}.jpg
+                        stt = df.loc[row_index[0], stt_col]
+                        drive_filename = f"{session_folder_name}_{stt}.jpg" 
+                        
+                        temp_file_for_upload = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                        TEMP_UPLOAD_PATH = temp_file_for_upload.name
+                        temp_file_for_upload.close()
+                        
+                        try:
+                            # Lưu ảnh từ bytes (image_bytes) vào file tạm
+                            image_to_save = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+                            image_to_save.save(TEMP_UPLOAD_PATH, format='JPEG')
+                            
+                            # Upload ảnh vào folder con
+                            upload_to_gdrive_real(TEMP_UPLOAD_PATH, target_folder_id, drive_filename, _credentials)
+                            st.info(f"🖼️ Đã lưu ảnh thành công: {session_folder_name}/{drive_filename}")
+                        
+                        except Exception as e:
+                            st.error(f"❌ Lỗi khi lưu ảnh điểm danh thành công: {e}")
+                        finally:
+                            if os.path.exists(TEMP_UPLOAD_PATH):
+                                os.remove(TEMP_UPLOAD_PATH)
+                    else:
+                        st.warning("⚠️ Không thể xác định/tạo folder Drive để lưu ảnh.")
                     # ==========================================================
 
                 else:
@@ -266,6 +338,8 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             
             # Gọi hàm Upload Drive (REAL) - Truyền _credentials
             upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, _credentials)
+            st.info(f"🖼️ Đã lưu ảnh không khớp vào folder chung: {drive_filename}")
+
 
         except Exception as e:
              st.error(f"❌ Lỗi khi tạo file tạm hoặc gọi hàm upload: {e}")
@@ -321,7 +395,7 @@ def main_app(credentials):
     # Tải Folder Dataset (REAL)
     dataset_ready = download_dataset_folder_real(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, credentials) 
     
-    # === LOGIC MỚI: Tải từ Drive chỉ khi chưa có trong Session State ===
+    # === LOGIC: Tải từ Drive chỉ khi chưa có trong Session State ===
     if CHECKLIST_SESSION_KEY not in st.session_state:
         # Tải Checklist (XLSX) từ Drive
         checklist_df = load_checklist(GDRIVE_CHECKLIST_ID, CHECKLIST_FILENAME, credentials)
@@ -401,12 +475,12 @@ def main_app(credentials):
 
         if captured_file is not None:
             
-            image_bytes = captured_file.getvalue()
+            # Lấy bytes của ảnh (cần cho việc lưu)
+            image_bytes = captured_file.getvalue() 
             
             with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
                 
                 # Phát hiện khuôn mặt và vẽ khung
-                # NHẬN KẾT QUẢ GỒM: ảnh có khung (RGB), ảnh GỐC (BGR), cờ phát hiện, số lượng khuôn mặt
                 processed_image_np, image_original_bgr, face_detected, num_faces = detect_and_draw_face(image_bytes, face_cascade)
                 processed_image = Image.fromarray(processed_image_np)
                 
@@ -441,8 +515,9 @@ def main_app(credentials):
                     * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
                     """)
                     
-                    # Cập nhật checklist (Lưu vào Session State)
-                    updated = update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
+                    # Cập nhật checklist VÀ LƯU ẢNH THÀNH CÔNG
+                    # Truyền image_bytes để lưu ảnh
+                    updated = update_checklist_and_save_new_data(stt_match, selected_session, image_bytes, credentials)
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
@@ -451,7 +526,7 @@ def main_app(credentials):
                     # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(5) # Đợi 5 giây
+                    time.sleep(2) # Đợi 2 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
                     st.rerun() # Buộc rerun
