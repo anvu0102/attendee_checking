@@ -5,30 +5,35 @@ from PIL import Image
 import io
 import requests
 import os
+import zipfile # Thêm thư viện để giải nén
 from deepface import DeepFace
 
 # --- 1. Thiết lập trang Streamlit ---
 st.set_page_config(
-    page_title="Hệ thống Điểm danh Khuôn mặt DeepFace",
+    page_title="Hệ thống Điểm danh Khuôn mặt DeepFace (GDrive)",
     page_icon="📸",
     layout="centered"
 )
 
 st.title("📸 Hệ thống Điểm danh Khuôn mặt DeepFace")
-st.caption("Sử dụng camera để chụp ảnh, nhận diện và đối chiếu với dataset bằng DeepFace.")
+st.caption("Dataset được tải từ Google Drive công khai.")
 
-# --- 2. Tải và Thiết lập Haar Cascade (Dùng cho phát hiện khung, không dùng cho so khớp) ---
+# --- 2. Tải và Thiết lập Haar Cascade (Dùng cho phát hiện khung) ---
 HAAR_CASCADE_URL = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
 CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
 face_cascade = None
 TEMP_IMAGE_PATH = "captured_face.jpg" # Đường dẫn tạm để lưu ảnh chụp
-DATASET_FOLDER = "dataset" # Thư mục chứa các khuôn mặt đã đăng ký
+
+# --- Cấu hình Google Drive Dataset ---
+# Vui lòng thay thế chuỗi này bằng File ID của file ZIP dataset công khai của bạn.
+GDRIVE_FILE_ID = "1qX4I983WrBYMWdQals3g_ijbeepf8BtG" 
+ZIP_FILENAME = "dataset.zip" 
+DATASET_FOLDER = "dataset" 
 
 @st.cache_resource
 def load_face_cascade(url, filename):
-    """ Tải Haar Cascade từ URL và lưu trữ trong bộ nhớ đệm của Streamlit. """
+    """ Tải Haar Cascade (giống code cũ). """
     try:
-        # Tải từ GitHub (giống như code gốc)
         r = requests.get(url)
         if r.status_code == 200:
             with open(filename, 'wb') as f:
@@ -46,13 +51,78 @@ def load_face_cascade(url, filename):
 # Khởi tạo bộ phân loại
 face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
-# Đảm bảo thư mục dataset tồn tại
-if not os.path.exists(DATASET_FOLDER):
-    os.makedirs(DATASET_FOLDER)
-    st.warning(f"Đã tạo thư mục '{DATASET_FOLDER}'. Vui lòng thêm ảnh khuôn mặt đã đăng ký vào đây.")
+
+@st.cache_resource(show_spinner="Đang tải và giải nén Dataset từ Google Drive (Chỉ chạy lần đầu)...")
+def download_and_extract_dataset(file_id, zip_name, target_folder):
+    """
+    Tải file ZIP công khai từ Google Drive và giải nén vào thư mục DeepFace dataset.
+    Sử dụng @st.cache_resource để chỉ chạy một lần.
+    """
+    if not file_id or file_id == "YOUR_GDRIVE_FILE_ID_HERE":
+        st.error("❌ Vui lòng thay thế 'YOUR_GDRIVE_FILE_ID_HERE' bằng File ID thực tế.")
+        return False
+        
+    # Kiểm tra nếu dataset đã được giải nén thành công (để tránh tải lại)
+    if os.path.exists(target_folder) and os.path.isdir(target_folder) and len(os.listdir(target_folder)) > 0:
+        # Kiểm tra nhanh: Nếu file `representations_arcface.pkl` của DeepFace đã tồn tại
+        # thì dataset đã sẵn sàng.
+        deepface_cache = os.path.join(target_folder, 'representations_arcface.pkl')
+        if os.path.exists(deepface_cache):
+             st.success(f"Dataset đã sẵn sàng tại '{target_folder}'. Bỏ qua tải xuống.")
+             return True
+        st.info("Dataset folder tồn tại nhưng thiếu cache DeepFace, đang thử tải lại...")
 
 
-# --- 3. Hàm Phát hiện Khuôn mặt (Giữ nguyên để vẽ khung) ---
+    st.info(f"Đang tải dataset từ Google Drive File ID: {file_id}...")
+    
+    # URL tải file từ Google Drive
+    DOWNLOAD_URL = f"https://drive.google.com/uc?export=download&id={file_id}"
+    
+    try:
+        response = requests.get(DOWNLOAD_URL, stream=True)
+        response.raise_for_status() 
+        
+        # Xử lý trường hợp Google Drive cảnh báo về dung lượng lớn (cookies)
+        if "confirm" in response.headers.get("Content-Disposition", ""):
+            st.warning("Google Drive đang yêu cầu xác nhận tải file lớn. Đang thử tải lại.")
+            
+            # Lấy confirm token
+            for key, value in response.cookies.items():
+                if key.startswith('download_warning'):
+                    params = {'id': file_id, 'confirm': value}
+                    response = requests.get(DOWNLOAD_URL, params=params, stream=True)
+                    response.raise_for_status()
+                    break
+
+        # Lưu file zip
+        with open(zip_name, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
+        st.success(f"Tải xuống {zip_name} thành công.")
+        
+        # Giải nén
+        with zipfile.ZipFile(zip_name, 'r') as zip_ref:
+            if not os.path.exists(target_folder):
+                os.makedirs(target_folder)
+            zip_ref.extractall(target_folder)
+            
+        st.success(f"Giải nén thành công vào thư mục '{target_folder}'.")
+        
+        # Xóa file zip tạm
+        os.remove(zip_name)
+        
+        return True
+
+    except Exception as e:
+        st.error(f"❌ Lỗi khi tải xuống hoặc giải nén dataset từ Drive: {e}")
+        if os.path.exists(zip_name):
+            os.remove(zip_name)
+        return False
+
+
+# --- 3. Hàm Phát hiện Khuôn mặt (Giữ nguyên) ---
 def detect_and_draw_face(image_bytes, cascade):
     """
     Nhận diện khuôn mặt trên ảnh đầu vào, vẽ khung, và trả về ảnh đã xử lý 
@@ -73,51 +143,40 @@ def detect_and_draw_face(image_bytes, cascade):
             minSize=(30, 30)
         )
 
-    # Vẽ khung vuông lên ảnh
     for (x, y, w, h) in faces:
         cv2.rectangle(image_bgr, (x, y), (x + w, y + h), (255, 0, 0), 2)
     
     processed_image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
 
-    return processed_image_rgb, len(faces) > 0, faces, image_bgr # Thêm image_bgr để lưu file
+    return processed_image_rgb, len(faces) > 0, len(faces), image_bgr # Thêm len(faces) và image_bgr
 
 
-# --- 4. Hàm DeepFace Recognition (Hàm mới) ---
-@st.cache_data
+# --- 4. Hàm DeepFace Recognition ---
 def verify_face_against_dataset(target_image_path, dataset_folder):
     """
     Sử dụng DeepFace để so sánh ảnh đầu vào với tất cả ảnh trong dataset.
-    Trả về tên người khớp (tên file) hoặc None.
+    Trả về tên người khớp (tên file) và khoảng cách so khớp (distance).
     """
     try:
-        # Chạy DeepFace.find để tìm tất cả các khuôn mặt khớp
-        # model_name='ArcFace' và distance_metric='cosine' là các tham số phổ biến
-        # distance_threshold có thể cần chỉnh sửa (ArcFace cosine: 0.68)
-        
-        # NOTE: DeepFace.find() trả về một list các DataFrames. Ta chỉ quan tâm kết quả đầu tiên.
-        df = DeepFace.find(
+        # DeepFace.find sẽ tự động tạo vector embedding và lưu cache (representations_arcface.pkl)
+        df_list = DeepFace.find(
             img_path=target_image_path, 
             db_path=dataset_folder, 
             model_name="ArcFace",
             distance_metric="cosine",
-            enforce_detection=True # Yêu cầu phát hiện khuôn mặt để so khớp
+            enforce_detection=True 
         )
         
-        # Nếu DataFrame không rỗng (tìm thấy kết quả khớp)
-        if isinstance(df, list) and len(df) > 0 and not df[0].empty:
-            # Lấy dòng đầu tiên (khớp tốt nhất - khoảng cách nhỏ nhất)
-            best_match = df[0].iloc[0]
-            # Lấy tên file gốc từ cột 'identity'
+        if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
+            best_match = df_list[0].iloc[0]
             identity_path = best_match['identity']
-            # Tên người là tên file (trước dấu chấm)
             person_name = os.path.splitext(os.path.basename(identity_path))[0]
-            distance = best_match['ArcFace_cosine'] # Khoảng cách so khớp
+            distance = best_match['ArcFace_cosine'] 
             return person_name, distance
         
         return None, None
     
     except ValueError as e:
-        # DeepFace ném ValueError nếu không tìm thấy khuôn mặt trong ảnh đầu vào
         if "Face could not be detected" in str(e):
              st.error("❌ Không phát hiện khuôn mặt trong ảnh chụp. Vui lòng thử lại.")
         else:
@@ -129,27 +188,31 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
 
 
 # --- 5. Giao diện và Luồng Ứng dụng ---
-st.info(f"Nhấn 'Chụp ảnh' để Streamlit truy cập camera. **Yêu cầu:** Thư mục '{DATASET_FOLDER}' phải chứa ảnh khuôn mặt đã đăng ký (ví dụ: 'NguyenVanA.jpg').")
+st.info(f"Đảm bảo đã thay thế **'YOUR_GDRIVE_FILE_ID_HERE'** bằng File ID của file ZIP dataset công khai trên Google Drive.")
 
-# Sử dụng widget camera_input của Streamlit
+# 5.1 KHỞI TẠO VÀ TẢI DATASET
+dataset_ready = download_and_extract_dataset(GDRIVE_FILE_ID, ZIP_FILENAME, DATASET_FOLDER)
+
+st.markdown("---")
+
+# 5.2 CHỤP ẢNH VÀ XỬ LÝ
 captured_file = st.camera_input("Chụp ảnh điểm danh:")
 
 if captured_file is not None:
-    if face_cascade is None:
-        st.error("Không thể tiếp tục do lỗi tải bộ phân loại khuôn mặt. Vui lòng kiểm tra nhật ký.")
+    if not dataset_ready: # Kiểm tra dataset đã sẵn sàng chưa
+        st.error("Không thể xử lý do lỗi tải dataset từ Google Drive.")
+    elif face_cascade is None:
+        st.error("Không thể tiếp tục do lỗi tải bộ phân loại khuôn mặt.")
     else:
-        # Đọc bytes của ảnh
         image_bytes = captured_file.getvalue()
         
         with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
             # 1. Phát hiện khuôn mặt và vẽ khung
-            processed_image_np, face_detected, face_locations, image_bgr = detect_and_draw_face(image_bytes, face_cascade)
+            processed_image_np, face_detected, num_faces, image_bgr = detect_and_draw_face(image_bytes, face_cascade)
             
-            # Chuyển mảng NumPy về đối tượng Image để hiển thị
             processed_image = Image.fromarray(processed_image_np)
             
-            # 2. Lưu ảnh tạm thời để DeepFace sử dụng (DeepFace cần đường dẫn file)
-            # Lưu ảnh BGR OpenCV vào đường dẫn tạm
+            # 2. Lưu ảnh tạm thời để DeepFace sử dụng
             cv2.imwrite(TEMP_IMAGE_PATH, image_bgr)
             
             # 3. Thực hiện so khớp DeepFace
@@ -162,7 +225,6 @@ if captured_file is not None:
         st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
         st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu bằng khung màu xanh dương.", use_column_width=True)
 
-        # Kiểm tra kết quả
         st.markdown("---")
         st.subheader("💡 Kết quả Điểm danh")
         
@@ -170,17 +232,16 @@ if captured_file is not None:
             st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
             st.markdown(f"""
             * **Người trùng khớp:** **{match_name}**
-            * **Khoảng cách Cosine (DeepFace ArcFace):** {distance:.4f}
-            * *Giả định:* Khoảng cách nhỏ hơn ngưỡng (mặc định ~0.68) => Khớp.
+            * **Khoảng cách Cosine (ArcFace):** {distance:.4f}
             """)
             
-        elif face_detected and match_name is None:
-            st.warning(f"⚠️ **Phát hiện {len(face_locations)} khuôn mặt, nhưng không khớp với dataset.**")
+        elif face_detected:
+            st.warning(f"⚠️ **Phát hiện {num_faces} khuôn mặt, nhưng không khớp với dataset.**")
             st.markdown("""
-            * Vui lòng kiểm tra lại ảnh trong thư mục `dataset`.
-            * Thử chụp lại ảnh với điều kiện ánh sáng tốt hơn.
+            * Vui lòng kiểm tra lại ánh sáng hoặc độ rõ của khuôn mặt.
+            * Đảm bảo tên file ảnh trong dataset khớp với tên người đăng ký.
             """)
             
-        else: # face_detected is False (và match_name is None)
+        else:
             st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
-            st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình, với đủ ánh sáng.")
+            st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
