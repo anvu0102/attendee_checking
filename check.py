@@ -260,16 +260,28 @@ def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
 def load_dataset_image(stt_match, dataset_folder):
     """
     Tìm và trả về đường dẫn của ảnh dataset tương ứng với STT match đầu tiên.
+    Đã cập nhật regex để hỗ trợ cả định dạng STT.jpg và STT_*.jpg.
     """
-    # Xây dựng pattern: STT_*.jpg/jpeg
-    # Tìm file bắt đầu bằng STT_ (có thể có số thứ tự) và kết thúc bằng .jpg hoặc .jpeg
-    pattern = re.compile(rf'^{stt_match}_.*\.jpe?g$', re.IGNORECASE)
+    # Biểu thức chính quy mới:
+    # ^{stt_match}\.jpe?g$   -> Khớp STT.jpg
+    # |                     -> HOẶC
+    # ^{stt_match}_.*\.jpe?g$ -> Khớp STT_*.jpg
+    
+    # Sử dụng hai pattern riêng biệt để linh hoạt hơn:
+    pattern_simple = re.compile(rf'^{stt_match}\.jpe?g$', re.IGNORECASE)
+    pattern_complex = re.compile(rf'^{stt_match}_.*\.jpe?g$', re.IGNORECASE)
     
     if os.path.isdir(dataset_folder):
         for filename in os.listdir(dataset_folder):
-            if pattern.match(filename):
-                # Trả về đường dẫn đầy đủ của file đầu tiên khớp
+            
+            # 1. Kiểm tra định dạng đơn giản (c.jpg)
+            if pattern_simple.match(filename):
                 return os.path.join(dataset_folder, filename)
+                
+            # 2. Kiểm tra định dạng phức tạp (c_001.jpg)
+            if pattern_complex.match(filename):
+                return os.path.join(dataset_folder, filename)
+                
     return None
         
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
