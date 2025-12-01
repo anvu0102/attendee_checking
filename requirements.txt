@@ -4,5 +4,5 @@ numpy
 pillow
 requests
 deepface==0.0.95
-# Use a slightly older, very stable TensorFlow version known for wide compatibility
 tensorflow==2.10.0
+keras==2.10.0
