@@ -284,7 +284,7 @@ def main_app(credentials):
          st.warning("⚠️ Lỗi tải hoặc đọc file Checklist. Vui lòng kiểm tra File ID và quyền truy cập bằng token.")
          return
 
-    st.info(f"Dataset đã sẵn sàng. Checklist có {len(checklist_df)} người.")
+    st.info(f"Checklist có {len(checklist_df)} người.")
 
     # 2. Chọn Buổi Học (Dropdown)
     attendance_cols = [col for col in st.session_state[CHECKLIST_SESSION_KEY].columns if "Buổi" in col]
