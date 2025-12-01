@@ -18,12 +18,12 @@ from check import main_app
 
 # --- 1. Thiết lập trang Streamlit ---
 st.set_page_config(
-    page_title="Hệ thống Điểm danh Khuôn mặt DeepFace (GDrive)",
+    page_title="Hệ thống Điểm danh",
     page_icon="📸",
     layout="centered"
 )
 
-st.title("📸 Hệ thống Điểm danh Khuôn mặt DeepFace")
+st.title("📸 Hệ thống Điểm danh")
 st.caption("Sử dụng ID Drive và OAuth Credentials từ st.secrets.")
 
 # ----------------------------------------------------------------------
