@@ -255,6 +255,22 @@ def get_or_create_drive_folder(parent_id, folder_name, _credentials):
 def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
     # Hàm này không được sử dụng
     pass
+
+# --- HÀM HỖ TRỢ HIỂN THỊ ẢNH DATASET (ĐÃ THÊM) ---
+def load_dataset_image(stt_match, dataset_folder):
+    """
+    Tìm và trả về đường dẫn của ảnh dataset tương ứng với STT match đầu tiên.
+    """
+    # Xây dựng pattern: STT_*.jpg/jpeg
+    # Tìm file bắt đầu bằng STT_ (có thể có số thứ tự) và kết thúc bằng .jpg hoặc .jpeg
+    pattern = re.compile(rf'^{stt_match}_.*\.jpe?g$', re.IGNORECASE)
+    
+    if os.path.isdir(dataset_folder):
+        for filename in os.listdir(dataset_folder):
+            if pattern.match(filename):
+                # Trả về đường dẫn đầy đủ của file đầu tiên khớp
+                return os.path.join(dataset_folder, filename)
+    return None
         
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
@@ -505,15 +521,15 @@ def main_app(credentials):
             # Lấy bytes của ảnh GỐC
             image_bytes_original = captured_file.getvalue() 
             
+            stt_match = None
+            distance = None
+            TEMP_IMAGE_PATH = None
+
             with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
                 
                 # --- THỰC HIỆN PHÁT HIỆN VÀ TRẢ VỀ TỌA ĐỘ KHUÔN MẶT ---
                 processed_image_np, image_original_bgr, face_detected, num_faces, faces = detect_and_draw_face(image_bytes_original, face_cascade)
                 processed_image = Image.fromarray(processed_image_np)
-                
-                stt_match = None
-                distance = None
-                TEMP_IMAGE_PATH = None
                 
                 # Kiểm tra chỉ có 1 khuôn mặt và tiến hành cắt
                 if face_detected and num_faces == 1:
@@ -542,10 +558,6 @@ def main_app(credentials):
                 
                 # --- End If face_detected and num_faces == 1 ---
                 
-            # Xóa file tạm
-            if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
-                os.remove(TEMP_IMAGE_PATH)
-                
             # HIỂN THỊ KẾT QUẢ TRONG PLACEHOLDER
             with result_placeholder.container():
                 st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
@@ -557,6 +569,26 @@ def main_app(credentials):
                 if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
                     st.balloons()
                     st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
+                    
+                    # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT VÀ ẢNH DATASET TRÙNG KHỚP ---
+                    dataset_image_path = load_dataset_image(stt_match, DATASET_FOLDER)
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Hiển thị ảnh đã cắt (đã lưu tạm thời)
+                        # TEMP_IMAGE_PATH chỉ tồn tại nếu phát hiện 1 khuôn mặt
+                        if TEMP_IMAGE_PATH:
+                            st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=True)
+                        
+                    with col2:
+                        if dataset_image_path:
+                            # Hiển thị ảnh dataset trùng khớp
+                            st.image(dataset_image_path, caption=f"Dataset (STT: {stt_match})", use_column_width=True)
+                        else:
+                            st.warning("Không tìm thấy ảnh dataset để hiển thị.")
+                    # -------------------------------------------------------------
+                    
                     st.markdown(f"""
                     * **STT trùng khớp:** **{stt_match}**
                     * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
@@ -573,7 +605,12 @@ def main_app(credentials):
                     # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(5) # Đợi 5 giây
+                    time.sleep(30) # Đợi 5 giây
+                    
+                    # Xóa file tạm sau khi đã hiển thị xong (trước khi rerun)
+                    if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
+                        os.remove(TEMP_IMAGE_PATH)
+                        
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
                     st.rerun() # Buộc rerun
@@ -582,6 +619,13 @@ def main_app(credentials):
                     
                 elif face_detected and num_faces == 1:
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
+                    
+                    # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT ---
+                    # Ảnh đã cắt được tạo và lưu ở TEMP_IMAGE_PATH
+                    if TEMP_IMAGE_PATH:
+                        st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=False)
+                    # ------------------------------------
+                    
                     # Lưu ảnh gốc (truyền image_bytes_original)
                     update_checklist_and_save_new_data(None, selected_session, image_bytes_original, credentials) 
                     
@@ -591,7 +635,12 @@ def main_app(credentials):
                 else:
                     st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
                     st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
-                    
+
+            # --- Vị trí XÓA file tạm mới: Xóa file tạm nếu không vào khối logic tự động clear 5s ---
+            if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
+                os.remove(TEMP_IMAGE_PATH)
+            # ---------------------------------------------------------------------------------------
+                
             # --- End result_placeholder.container() ---
             
     # 4. HIỂN THỊ TRẠNG THÁI CHECKLIST BAN ĐẦU HOẶC SAU KHI RERUN
