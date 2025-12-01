@@ -617,8 +617,8 @@ def main_app(credentials):
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
-                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(30) # Đợi 5 giây
+                    # --- LOGIC TỰ ĐỘNG CLEAR ---
+                    time.sleep(2) # Đợi 2 giây
                     
                     # Xóa file tạm sau khi đã hiển thị xong (trước khi rerun)
                     if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
