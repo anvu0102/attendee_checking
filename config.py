@@ -211,7 +211,7 @@ def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, _credentia
             ).execute()
 
         # st.success(f"✅ **Upload Thành Công:** File '{drive_filename}' đã được lưu.")
-        st.info(f"Đã lưu vào Drive Folder ID: **{drive_folder_id}**.")
+        # st.info(f"Đã lưu vào Drive Folder ID: **{drive_folder_id}**.")
         
         # Xóa cache của hàm list_files_in_gdrive_folder để dữ liệu mới được cập nhật
         list_files_in_gdrive_folder.clear()
