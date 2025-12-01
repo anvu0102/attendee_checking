@@ -368,7 +368,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
     # 2. Lưu ảnh mới lên Drive (Nếu không khớp) - SỬ DỤNG ẢNH GỐC
     else: 
         # Cảnh báo không khớp
-        st.warning("⚠️ Khuôn mặt không khớp. Đang lưu ảnh vào folder dữ liệu mới...")
+        st.warning("⚠️ Đang lưu ảnh vào folder dữ liệu mới...")
         
         # --- LOGIC LƯU ẢNH GỐC KHÔNG KHỚP (GIỮ NGUYÊN) ---
         # Lấy số thứ tự tiếp theo dựa trên các file hiện có trên Drive
@@ -390,7 +390,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             
             # Gọi hàm Upload Drive (REAL) - Truyền _credentials
             upload_to_gdrive_real(TEMP_UPLOAD_PATH, GDRIVE_NEW_DATA_FOLDER_ID, drive_filename, _credentials)
-            st.info(f"🖼️ Đã lưu ảnh GỐC không khớp vào folder chung: {drive_filename}")
+            st.info(f"🖼️ Đã lưu ảnh không khớp vào folder chung: {drive_filename}")
 
         except Exception as e:
              st.error(f"❌ Lỗi khi tạo file tạm hoặc gọi hàm upload: {e}")
@@ -494,7 +494,7 @@ def main_app(credentials):
     display_options = ["--- Vui lòng chọn buổi ---"] + attendance_cols
     
     selected_session_display = st.selectbox(
-        "1️⃣ **Chọn Buổi Điểm Danh**", 
+        "Chọn Buổi Điểm Danh", 
         display_options, 
         index=0, # Mặc định chọn tùy chọn đầu tiên ("--- Vui lòng chọn buổi ---")
         help="Chọn buổi tương ứng để cập nhật cột điểm danh trong checklist."
@@ -503,14 +503,14 @@ def main_app(credentials):
     # Xác định buổi học thực sự được chọn
     selected_session = selected_session_display if selected_session_display != "--- Vui lòng chọn buổi ---" else None
     
-    if selected_session:
-        st.success(f"Đang điểm danh cho: **{selected_session}**")
-    else:
+    if not selected_session:
+        # st.success(f"Đang điểm danh cho: **{selected_session}**")
+    # else:
         st.info("⬅️ **Vui lòng chọn một Buổi Điểm Danh để tiếp tục.**")
 
     # --- BỔ SUNG: CHECKBOX HIỂN THỊ ẢNH DEBUG ---
     show_debug_images = st.checkbox(
-        "2️⃣ Hiển thị Ảnh đã Cắt và Ảnh Dataset (Nếu có)",
+        "Hiển thị Ảnh đã Cắt và Ảnh Dataset",
         value=True, # Mặc định bật
         help="Bật để xem ảnh khuôn mặt được cắt ra và ảnh tương ứng trong dataset (khi điểm danh thành công) hoặc ảnh đã cắt (khi không khớp)."
     )
@@ -524,7 +524,7 @@ def main_app(credentials):
         
         # --- THÊM KEY VÀO CAMERA INPUT ---
         captured_file = st.camera_input(
-            "3️⃣ Chụp ảnh điểm danh:", 
+            "Chụp ảnh điểm danh", 
             key=f"camera_input_{st.session_state['camera_input_key']}" # Sử dụng key từ session state
         )
         # ----------------------------------
