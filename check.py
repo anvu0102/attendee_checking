@@ -379,6 +379,10 @@ def main_app(credentials):
 
         st.markdown("---")
         st.subheader("💡 Kết quả Điểm danh")
+
+        #Test 
+        stt_match = "2"
+        distance = 0.01
         
         if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
             st.balloons()
