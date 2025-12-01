@@ -614,7 +614,7 @@ def main_app(credentials):
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
-                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
+                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY (CHỈ CHO THÀNH CÔNG) ---
                     time.sleep(5) # Đợi 5 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
@@ -657,19 +657,13 @@ def main_app(credentials):
                             with col2:
                                 st.image(best_match_identity_path, caption=f"Ảnh gần nhất từ Dataset (STT: {stt_closest})", use_column_width=True)
                     
-                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(5) # Đợi 5 giây
-                    # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
-                    st.session_state['camera_input_key'] += 1 
-                    if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
-                        os.remove(TEMP_IMAGE_PATH) # Xóa file tạm trước khi rerun
-                    st.rerun() # Buộc rerun
-                    # --------------------------------------
+                    # --- LOGIC TỰ ĐỘNG CLEAR (ĐÃ BỊ XÓA THEO YÊU CẦU) ---
+                    # Giữ nguyên kết quả trên màn hình
                     
                 elif face_detected and num_faces > 1:
                     st.error(f"❌ **Phát hiện nhiều khuôn mặt ({num_faces}). Vui lòng chỉ có 1 người trong khung hình.**")
                     
-                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY (nếu có lỗi) ---
+                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY (cho trường hợp lỗi) ---
                     time.sleep(5) # Đợi 5 giây
                     st.session_state['camera_input_key'] += 1 
                     if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
@@ -681,7 +675,7 @@ def main_app(credentials):
                     st.warning("⚠️ **Không phát hiện thấy khuôn mặt.**")
                     st.markdown("Vui lòng thử lại. Đảm bảo khuôn mặt của bạn nằm gọn và rõ ràng trong khung hình.")
                     
-                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY (nếu có lỗi) ---
+                    # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY (cho trường hợp lỗi) ---
                     time.sleep(5) # Đợi 5 giây
                     st.session_state['camera_input_key'] += 1 
                     if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
