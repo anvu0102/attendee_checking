@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+vnstock
+google-genai
+setuptools
+pandas-datareader
+openpyxl
+xlsxwriter
+tabulate
