@@ -96,7 +96,7 @@ def detect_and_draw_face(image_bytes, cascade):
 def verify_face_against_dataset(target_image_path, dataset_folder):
     """ 
     Sử dụng DeepFace để so sánh ảnh đầu vào (ĐÃ CẮT) với dataset. 
-    Lưu ý: Vì ảnh đã được cắt và lưu, ta đặt enforce_detection=False để DeepFace không cần tìm lại.
+    Trả về STT và khoảng cách Cosine nhỏ nhất (best distance) TÌM THẤY.
     """
     try:
         # DeepFace.find trả về danh sách DataFrame, thường chỉ có 1
@@ -107,32 +107,39 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             distance_metric="cosine",
             enforce_detection=True, 
             detector_backend=DETECTOR_BACKEND 
-            # KHÔNG CẦN CẮT NỮA VÌ ẢNH ĐÃ ĐƯỢC CẮT BÊN NGOÀI
         )
         
         # Kiểm tra nếu có kết quả và DataFrame đầu tiên không rỗng
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
+            
+            # --- Lấy best match từ DataFrame (Dòng đầu tiên, vì DeepFace sắp xếp theo khoảng cách nhỏ nhất) ---
             best_match = df_list[0].iloc[0]
             identity_path = best_match['identity']
-            print(identity_path)
-            # Lấy STT từ tên file (vd: 1_001.jpg -> 1)
+            
+            # Lấy STT từ tên file
             stt_match = os.path.splitext(os.path.basename(identity_path))[0].split('_')[0]
             distance = best_match['ArcFace_cosine'] 
             
             # Đảm bảo distance là float trước khi trả về
             if pd.notna(distance):
+                # TRẢ VỀ STT VÀ KHOẢNG CÁCH BEST MATCH TÌM ĐƯỢC
                 return stt_match, float(distance)
             else:
                 st.error("❌ DeepFace không trả về độ tương đồng (distance) hợp lệ.")
                 return None, None
-                
-        return None, None
+        
+        # Bổ sung: Nếu DeepFace phát hiện khuôn mặt nhưng không có match trong ngưỡng
+        # Nó vẫn trả về một danh sách DF rỗng nếu `enforce_detection=True`
+        return None, None 
+        
     except Exception as e:
-        # Chỉ in lỗi DeepFace nếu không phải lỗi không phát hiện
+        # Xử lý lỗi Không phát hiện khuôn mặt
         if "Face could not be detected" in str(e):
+             # DeepFace không tìm thấy khuôn mặt.
              st.error(f"❌ Lỗi DeepFace: Không phát hiện khuôn mặt để so khớp. (Kiểm tra chất lượng ảnh)")
         else:
             st.error(f"❌ Lỗi DeepFace: {e}")
+            
         return None, None
 
 
@@ -576,7 +583,7 @@ def main_app(credentials):
                 st.markdown("---")
                 st.subheader("💡 Kết quả Điểm danh")
                 
-                if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
+                if stt_match and distance is not None: # ĐIỂM DANH THÀNH CÔNG
                     st.balloons()
                     st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
                     
@@ -590,47 +597,49 @@ def main_app(credentials):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # Hiển thị ảnh đã cắt (đã lưu tạm thời)
-                        # TEMP_IMAGE_PATH chỉ tồn tại nếu phát hiện 1 khuôn mặt
                         if TEMP_IMAGE_PATH:
                             st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=True)
                         
                     with col2:
                         if dataset_image_path:
-                            # Hiển thị ảnh dataset trùng khớp
                             st.image(dataset_image_path, caption=f"Dataset (STT: {stt_match})", use_column_width=True)
                         else:
                             st.warning("Không tìm thấy ảnh dataset để hiển thị.")
                     # -------------------------------------------------------------
                     
                     # Cập nhật checklist VÀ LƯU ẢNH GỐC THÀNH CÔNG
-                    # TRUYỀN BYTES CỦA ẢNH GỐC
                     updated = update_checklist_and_save_new_data(stt_match, selected_session, image_bytes_original, credentials)
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
-                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(5) # Đợi 5 giây
+                    time.sleep(5) 
                     
-                    # Xóa file tạm sau khi đã hiển thị xong (trước khi rerun)
                     if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
                         os.remove(TEMP_IMAGE_PATH)
                         
-                    # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
-                    st.rerun() # Buộc rerun
+                    st.rerun() 
                     # --------------------------------------
                     return 
                     
-                elif face_detected and num_faces == 1:
+                elif face_detected and num_faces == 1: # KHÔNG THÀNH CÔNG (Phát hiện 1 khuôn mặt)
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
                     
+                    # --- BỔ SUNG: HIỂN THỊ BEST SCORE (KHOẢNG CÁCH COSINE) TÌM ĐƯỢC ---
+                    # Nếu distance hợp lệ (tức là DeepFace tìm thấy match nhưng dưới ngưỡng), ta hiển thị.
+                    if distance is not None:
+                        st.markdown(f"**Best Match STT Tìm Thấy:** **{stt_match if stt_match else 'N/A'}** | **Khoảng cách (Cosine):** <span style='font-size: 1.2em; color: orange;'>**`{distance:.4f}`**</span>", unsafe_allow_html=True)
+                        st.info("Khoảng cách Cosine này cao hơn ngưỡng cho phép của DeepFace.")
+                        st.markdown("---")
+                    else:
+                         st.info("Không tìm thấy match tiềm năng nào trong dataset.")
+                         st.markdown("---")
+                    
                     # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT ---
-                    # Ảnh đã cắt được tạo và lưu ở TEMP_IMAGE_PATH
                     if TEMP_IMAGE_PATH:
                         st.image(TEMP_IMAGE_PATH, caption="Khuôn mặt đã Cắt (Cropped)", use_column_width=False)
                     # ------------------------------------
