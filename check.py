@@ -1,7 +1,6 @@
 # check.py
 """
 Chứa các hàm xử lý DeepFace, OpenCV, logic cập nhật checklist và giao diện Streamlit.
-Đã điều chỉnh giao diện chính (main_app) để hiển thị camera và ảnh kết quả song song.
 """
 import streamlit as st
 import cv2
@@ -152,21 +151,21 @@ def load_checklist(file_id, filename, _credentials):
     return None
 
 # --- HÀM TÌM SỐ THỨ TỰ LỚN NHẤT TRONG FOLDER NEW DATA ---
-def get_next_new_data_stt(session_num, _credentials):
+def get_next_new_data_stt(_credentials):
     """
     Tìm số thứ tự lớn nhất trong folder NEW_DATA_FOLDER_ID trên Drive
-    để đặt tên cho file mới (ví dụ: B5_1.jpg, B5_2.jpg, ...).
-    Trả về số thứ tự tiếp theo (integer) *DƯỚI DẠNG BUỔI CỤ THỂ*.
+    để đặt tên cho file mới (ví dụ: B1_1.jpg, B1_2.jpg, ...).
+    Trả về số thứ tự tiếp theo (integer).
     """
     
     # 1. Lấy danh sách tên file từ Drive
     file_list = list_files_in_gdrive_folder(GDRIVE_NEW_DATA_FOLDER_ID, _credentials)
     
     max_stt = 0
-    # Biểu thức chính quy để tìm số sau dấu gạch dưới 
-    # THAY ĐỔI: Chỉ tìm các file bắt đầu bằng B<session_num>_
-    # Pattern: B<session_num>_<số>.jpg
-    pattern = re.compile(r'B' + re.escape(session_num) + r'_(\d+)\.jpe?g$', re.IGNORECASE)
+    # Biểu thức chính quy để tìm số sau dấu gạch dưới (ví dụ: BX_123.jpg -> 123)
+    # Pattern: [Buổi]<số>_<số>.jpg
+    # Chúng ta chỉ quan tâm đến phần số cuối cùng trước .jpg
+    pattern = re.compile(r'B\d+_(\d+)\.jpe?g$', re.IGNORECASE)
     
     for filename in file_list:
         match = pattern.search(filename)
@@ -227,14 +226,12 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
         # Cảnh báo không khớp
         st.warning("⚠️ Khuôn mặt không khớp. Đang lưu ảnh vào folder dữ liệu mới...")
 
-        # Lấy số Buổi (ví dụ: "5" từ "Buổi 5")
-        session_num_str = session_name.replace("Buổi ", "") # THAY ĐỔI ĐÃ THỰC HIỆN Ở ĐÂY
-        
-        # Lấy số thứ tự tiếp theo dựa trên các file hiện có trên Drive cho BUỔI NÀY
-        next_counter = get_next_new_data_stt(session_num_str, _credentials)
+        # Lấy số thứ tự tiếp theo dựa trên các file hiện có trên Drive
+        next_counter = get_next_new_data_stt(_credentials)
         
         # Tạo tên file theo định dạng B<buổi>_<counter>.jpg
-        drive_filename = f"B{session_num_str}_{next_counter}.jpg" 
+        session_num = session_name.replace("Buổi ", "")
+        drive_filename = f"B{session_num}_{next_counter}.jpg" 
         
         # --- TẠO FILE TẠM ĐỂ UPLOAD ---
         temp_file_for_upload = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
@@ -256,7 +253,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
 
 
 # ----------------------------------------------------------------------
-#                             GIAO DIỆN CHÍNH (main_app) - ĐÃ ĐIỀU CHỈNH
+#                             GIAO DIỆN CHÍNH (main_app)
 # ----------------------------------------------------------------------
 
 def main_app(credentials):
@@ -319,21 +316,10 @@ def main_app(credentials):
     # 3. Chụp Ảnh và Xử Lý
     # --- THAY ĐỔI: Chỉ hiển thị camera input nếu đã chọn buổi ---
     if selected_session:
-        
-        # TẠO 2 CỘT CHO HIỂN THỊ SONG SONG
-        col1, col2 = st.columns(2)
-        
-        # Hiển thị Camera Input trong cột 1
-        with col1:
-            captured_file = st.camera_input("2️⃣ Chụp ảnh điểm danh:")
-
-        # Cột 2 ban đầu hiển thị hướng dẫn
-        with col2:
-            st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
+        captured_file = st.camera_input("2️⃣ Chụp ảnh điểm danh:")
 
         if captured_file is not None:
             
-            # --- PHẦN XỬ LÝ ẢNH BỊ RÚT GỌN VÀ CHUYỂN VÀO SPINNER
             image_bytes = captured_file.getvalue()
             
             with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
@@ -358,12 +344,8 @@ def main_app(credentials):
             if os.path.exists(TEMP_IMAGE_PATH):
                 os.remove(TEMP_IMAGE_PATH)
                 
-            # --- GHI ĐÈ KẾT QUẢ HIỂN THỊ VÀO CỘT 2 ---
-            with col2:
-                # Ảnh đã chụp (có khung nhận diện)
-                st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
-            # ---------------------------------------------
-
+            st.subheader("🖼️ Ảnh đã chụp và Nhận diện")
+            st.image(processed_image, caption="Khuôn mặt đã phát hiện được đánh dấu.", use_column_width=True)
 
             st.markdown("---")
             st.subheader("💡 Kết quả Điểm danh")
