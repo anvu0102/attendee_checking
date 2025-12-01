@@ -1,8 +1,8 @@
 # check.py
 """
 Chứa các hàm xử lý DeepFace, OpenCV, logic cập nhật checklist và giao diện Streamlit.
-ĐÃ SỬA LỖI: AttributeError: 'WebRtcStreamerContext' object has no attribute 'get_last_frame'
-Thay thế bằng việc sử dụng out_queue (Hàng đợi) để nhận khung hình video.
+ĐÃ CẬP NHẬT: SỬ DỤNG VideoTransformerBase để lưu trữ frame vào Session State, 
+giải quyết lỗi 'out_queue' và cho phép xử lý frame bằng nút bấm (trigger).
 """
 import streamlit as st
 import cv2
@@ -18,10 +18,8 @@ import re
 import time
 import datetime 
 
-# --- THƯ VIỆN BỔ SUNG CHO WEBRTC VÀ SỬA LỖI ATTRIBUTEERROR ---
-# Cần import WebRtcMode và Queue
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode 
-from queue import Queue, Empty 
+# --- THƯ VIỆN BỔ SUNG CHO WEBRTC ---
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import av 
 # ------------------------------------
 
@@ -37,14 +35,49 @@ from config import (
     download_file_from_gdrive, upload_to_gdrive_real, list_files_in_gdrive_folder
 )
 
+# Khai báo Global Variable để lưu trữ Frame (hoặc dùng st.session_state)
+# SỬ DỤNG SESSION_STATE LÀ PHƯƠNG PHÁP ƯU TIÊN HƠN
+LAST_FRAME_SESSION_KEY = "last_video_frame"
 
 # ----------------------------------------------------------------------
-#                             CÁC HÀM XỬ LÝ (GIỮ NGUYÊN)
+#                             VIDEO TRANSFORMER
+# ----------------------------------------------------------------------
+
+class FrameBufferTransformer(VideoTransformerBase):
+    """
+    Lớp này nhận luồng video liên tục và lưu trữ khung hình mới nhất 
+    vào Streamlit Session State để xử lý bên ngoài.
+    """
+    def __init__(self):
+        # Khởi tạo frame rỗng
+        self.last_frame = None
+        
+    def transform(self, frame: av.VideoFrame) -> np.ndarray:
+        """
+        Hàm này chạy liên tục cho mỗi khung hình.
+        Nó chỉ lưu trữ frame mới nhất vào Session State mà không làm DeepFace.
+        """
+        # Chuyển đổi frame AV (RGB) sang mảng NumPy BGR
+        image_np_rgb = frame.to_ndarray(format="rgb24")
+        image_np_bgr = cv2.cvtColor(image_np_rgb, cv2.COLOR_RGB2BGR)
+        
+        # Lưu frame BGR vào session state
+        st.session_state[LAST_FRAME_SESSION_KEY] = image_np_bgr
+        
+        # Trả về frame RGB (đã được chuyển đổi) để hiển thị trong widget webrtc
+        # Frame hiển thị trong widget sẽ có viền đỏ nhẹ để báo hiệu đang hoạt động
+        image_np_rgb_copy = image_np_rgb.copy()
+        cv2.rectangle(image_np_rgb_copy, (0, 0), (image_np_rgb_copy.shape[1], image_np_rgb_copy.shape[0]), (255, 0, 0), 2)
+        return image_np_rgb_copy
+
+
+# ----------------------------------------------------------------------
+#                             CÁC HÀM XỬ LÝ (GIỮ NGUYÊN HOẶC SỬA NHỎ)
 # ----------------------------------------------------------------------
 
 @st.cache_resource(show_spinner="Đang tải Haar Cascade...")
 def load_face_cascade(url, filename):
-    """ Tải Haar Cascade cho OpenCV. """
+    # ... (giữ nguyên)
     try:
         if not os.path.exists(filename):
             r = requests.get(url)
@@ -65,15 +98,11 @@ def load_face_cascade(url, filename):
         st.error(f"Lỗi khi tải hoặc khởi tạo Haar Cascade: {e}")
         return None
 
-# Load cascade ngay khi file được import
 face_cascade = load_face_cascade(HAAR_CASCADE_URL, CASCADE_FILENAME)
 
 
 def detect_and_draw_face(image_np_bgr, cascade):
-    """ 
-    Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh (BGR). 
-    Trả về: ảnh có khung (RGB), cờ phát hiện, số lượng khuôn mặt, TỌA ĐỘ (x,y,w,h).
-    """
+    """ Dùng Haar Cascade để phát hiện và vẽ khung khuôn mặt trên ảnh (BGR). """
     
     image_original_bgr = image_np_bgr.copy()
     image_bgr_with_frame = image_original_bgr.copy()
@@ -93,7 +122,7 @@ def detect_and_draw_face(image_np_bgr, cascade):
 
 
 def verify_face_against_dataset(target_image_path, dataset_folder):
-    """ Sử dụng DeepFace để so sánh ảnh đầu vào (ĐÃ CẮT) với dataset. """
+    # ... (giữ nguyên)
     try:
         df_list = DeepFace.find(
             img_path=target_image_path, 
@@ -123,7 +152,7 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
 
 
 def load_checklist(file_id, filename, _credentials):
-    """ Tải checklist XLSX và đọc thành DataFrame. """
+    # ... (giữ nguyên)
     download_file_from_gdrive(file_id, filename, _credentials)
         
     if os.path.exists(filename):
@@ -138,7 +167,7 @@ def load_checklist(file_id, filename, _credentials):
     return None
 
 def get_next_new_data_stt(_credentials):
-    """ Tìm số thứ tự lớn nhất trong folder NEW_DATA_FOLDER_ID. """
+    # ... (giữ nguyên)
     file_list = list_files_in_gdrive_folder(GDRIVE_NEW_DATA_FOLDER_ID, _credentials)
     max_stt = 0
     pattern = re.compile(r'B\d+_(\d+)\.jpe?g$', re.IGNORECASE)
@@ -154,7 +183,7 @@ def get_next_new_data_stt(_credentials):
     return max_stt + 1
 
 def check_drive_file_existence(folder_id, filename, _credentials):
-    """ Kiểm tra xem file có tên filename đã tồn tại. """
+    # ... (giữ nguyên)
     try:
         service = build('drive', 'v3', credentials=_credentials)
         query = (
@@ -172,7 +201,7 @@ def check_drive_file_existence(folder_id, filename, _credentials):
 
 @st.cache_resource(show_spinner="Đang kiểm tra/tạo folder Drive...")
 def get_or_create_drive_folder(parent_id, folder_name, _credentials):
-    """ Tìm ID của folder con trong parent_id. Nếu chưa tồn tại, tạo mới. """
+    # ... (giữ nguyên)
     try:
         service = build('drive', 'v3', credentials=_credentials)
         query = (
@@ -198,7 +227,7 @@ def get_or_create_drive_folder(parent_id, folder_name, _credentials):
         return None
         
 def load_dataset_image(stt_match, dataset_folder):
-    """ Tìm và trả về đường dẫn của ảnh dataset tương ứng với STT match đầu tiên. """
+    # ... (giữ nguyên)
     pattern_simple = re.compile(rf'^{stt_match}\.jpe?g$', re.IGNORECASE)
     pattern_complex = re.compile(rf'^{stt_match}_.*\.jpe?g$', re.IGNORECASE)
     
@@ -424,9 +453,9 @@ def main_app(credentials):
         st.session_state['processing_triggered'] = False
     if 'webrtc_key' not in st.session_state:
         st.session_state['webrtc_key'] = 0
-    # KHỞI TẠO HÀNG ĐỢI
-    if 'frame_queue' not in st.session_state:
-        st.session_state['frame_queue'] = Queue()
+    # Khởi tạo frame rỗng để đảm bảo key tồn tại
+    if LAST_FRAME_SESSION_KEY not in st.session_state:
+        st.session_state[LAST_FRAME_SESSION_KEY] = None
     # =================================
 
     # 1. Tải Dataset & Checklist
@@ -493,54 +522,51 @@ def main_app(credentials):
         
         col_video, col_trigger = st.columns([2, 1])
 
-        # --- VIDEO STREAM (SỬ DỤNG out_queue) ---
+        # --- VIDEO STREAM (SỬ DỤNG VideoTransformerBase) ---
         with col_video:
             st.subheader("📹 Luồng Video Trực tiếp")
+            # Truyền FrameBufferTransformer vào
             webrtc_ctx = webrtc_streamer(
                 key=f"webrtc_{st.session_state['webrtc_key']}", 
                 mode=WebRtcMode.SENDRECV, 
-                video_transformer_factory=None, 
+                video_transformer_factory=FrameBufferTransformer, # Dùng transformer để lưu frame
                 media_stream_constraints={"video": True, "audio": False},
-                # TRUYỀN HÀNG ĐỢI ĐỂ NHẬN FRAME ĐẦU RA
-                out_queue=st.session_state['frame_queue']
             )
 
         # --- TRIGGER BUTTON ---
         with col_trigger:
             st.subheader("Kích hoạt")
-            # Button để kích hoạt việc lấy khung hình và xử lý
-            if st.button("🔴 Kích hoạt Xử lý/Điểm danh", help="Nhấn để lấy khung hình hiện tại và thực hiện nhận diện.", disabled=not (webrtc_ctx and webrtc_ctx.state.playing)):
+            # Kiểm tra xem webrtc_ctx có đang chạy và có frame nào được lưu chưa
+            frame_available = st.session_state.get(LAST_FRAME_SESSION_KEY) is not None
+            
+            if st.button("🔴 Kích hoạt Xử lý/Điểm danh", help="Nhấn để lấy khung hình hiện tại và thực hiện nhận diện.", disabled=not frame_available):
                 st.session_state['processing_triggered'] = True
                 st.rerun()
+            
+            if webrtc_ctx and webrtc_ctx.state.playing and not frame_available:
+                 st.info("Đang chờ nhận khung hình đầu tiên...")
+            elif not (webrtc_ctx and webrtc_ctx.state.playing):
+                 st.warning("Vui lòng Bấm START để kích hoạt camera.")
+
 
         # --- LOGIC XỬ LÝ SAU KHI KÍCH HOẠT ---
-        if st.session_state['processing_triggered'] and webrtc_ctx and webrtc_ctx.state.playing:
+        if st.session_state['processing_triggered']:
             
             st.session_state['processing_triggered'] = False
             
-            # Lấy frame mới nhất từ hàng đợi
-            latest_frame = None
-            try:
-                frame_queue = st.session_state['frame_queue']
-                # Xóa hết frame cũ, chỉ giữ lại frame cuối cùng
-                while True:
-                    frame = frame_queue.get_nowait()
-                    if frame is not None:
-                         latest_frame = frame
-            except Empty:
-                 # Hàng đợi trống (frame đã được lấy hết)
-                 pass
+            # Lấy frame được lưu bởi FrameBufferTransformer
+            latest_frame_bgr = st.session_state.get(LAST_FRAME_SESSION_KEY)
             
-            if latest_frame:
+            # Xóa frame ngay lập tức để tránh xử lý trùng lặp nếu người dùng nhấn nút nhiều lần
+            st.session_state[LAST_FRAME_SESSION_KEY] = None 
+            
+            if latest_frame_bgr is not None:
                 with st.spinner('Đang xử lý ảnh và nhận diện khuôn mặt...'):
-                    # Chuyển đổi khung hình AV sang mảng NumPy BGR
-                    image_np_rgb = latest_frame.to_ndarray(format="rgb24")
-                    image_np_bgr = cv2.cvtColor(image_np_rgb, cv2.COLOR_RGB2BGR)
-
+                    
                     # --- GỌI HÀM XỬ LÝ FRAME SỐNG ---
-                    process_live_frame(image_np_bgr, selected_session, credentials, show_debug_images)
+                    process_live_frame(latest_frame_bgr, selected_session, credentials, show_debug_images)
             else:
-                st.warning("⚠️ Không thể lấy khung hình từ luồng video. Vui lòng thử lại.")
+                st.warning("⚠️ Không thể lấy khung hình. Có thể camera chưa kịp hoạt động.")
                 time.sleep(2)
                 st.rerun()
                 
