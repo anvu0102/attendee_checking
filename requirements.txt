@@ -4,6 +4,5 @@ numpy
 pillow
 requests
 deepface==0.0.95
-# Lock down TensorFlow and Keras to known working versions
-tensorflow==2.16.1
-keras==3.1.1
+# Use a slightly older, very stable TensorFlow version known for wide compatibility
+tensorflow==2.10.0
