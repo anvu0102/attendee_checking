@@ -49,7 +49,7 @@ def load_face_cascade(url, filename):
 
         classifier = cv2.CascadeClassifier(filename)
         if not classifier.empty():
-            st.success("✅ Haar Cascade đã sẵn sàng.")
+            # st.success("✅ Haar Cascade đã sẵn sàng.")
             return classifier
         else:
             st.error("Lỗi: Khởi tạo Haar Cascade thất bại.")
@@ -337,7 +337,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
                         
                         # Upload ảnh vào folder con
                         upload_to_gdrive_real(TEMP_UPLOAD_PATH, target_folder_id, drive_filename, _credentials)
-                        st.info(f"🖼️ Đã lưu ảnh GỐC thành công: {session_folder_name}/{drive_filename}")
+                        st.info(f"🖼️ Đã lưu ảnh thành công: {session_folder_name}/{drive_filename}")
                     
                     except Exception as e:
                         st.error(f"❌ Lỗi khi lưu ảnh điểm danh thành công: {e}")
@@ -455,7 +455,7 @@ def main_app(credentials):
         if checklist_df is not None:
             # Lần đầu tiên: Lưu DataFrame vào Session State
             st.session_state[CHECKLIST_SESSION_KEY] = checklist_df
-            st.info("✅ Đã tải Checklist từ Drive vào Session State.")
+            # st.info("✅ Đã tải Checklist từ Drive vào Session State.")
         else:
             # Xử lý lỗi tải lần đầu
             st.warning("⚠️ Lỗi tải hoặc đọc file Checklist. Vui lòng kiểm tra File ID và quyền truy cập bằng token.")
