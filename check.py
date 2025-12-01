@@ -184,19 +184,16 @@ def get_next_new_data_stt(_credentials):
     # Trả về số thứ tự tiếp theo
     return max_stt + 1
 
-# --- HÀM MỚI: GHI ĐÈ FILE CHECKLIST LÊN DRIVE BẰNG ID ---
+# --- HÀM GHI ĐÈ FILE CHECKLIST LÊN DRIVE BẰNG ID (KHÔNG DÙNG NỮA) ---
 def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
     """ Tải file local lên Drive, ghi đè file có ID tương ứng. """
+    # Giữ lại hàm này đề phòng lỗi Undefined, nhưng logic sẽ KHÔNG được gọi
     try:
-        # Xây dựng Drive Service Object
         service = build('drive', 'v3', credentials=_credentials)
-        
-        # Tạo đối tượng MediaFileUpload
         media = MediaFileUpload(local_path,
                                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                 resumable=True)
 
-        # Cập nhật file trên Drive bằng file_id
         service.files().update(fileId=file_id,
                                media_body=media).execute()
         return True
@@ -233,17 +230,9 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
                     
                     st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
                     
-                    # === BỔ SUNG LOGIC GHI NGƯỢC LÊN DRIVE ĐỂ LƯU TRẠNG THÁI ===
-                    try:
-                        # 1. Lưu DataFrame vào file local (ghi đè file đã tải)
-                        df.to_excel(CHECKLIST_FILENAME, index=False)
-                        
-                        # 2. Upload file local lên Drive (OVERWRITE)
-                        overwrite_gdrive_checklist_file(CHECKLIST_FILENAME, GDRIVE_CHECKLIST_ID, _credentials)
-                        st.info("🔄 Đã lưu trạng thái checklist mới lên Google Drive.")
-                        
-                    except Exception as e:
-                        st.error(f"❌ Lỗi khi ghi lại checklist lên Drive: {e}")
+                    # === ĐÃ XÓA LOGIC GHI NGƯỢC LÊN DRIVE ĐỂ LƯU TRẠNG THÁI ===
+                    # Bỏ qua phần ghi file Excel và gọi hàm overwrite_gdrive_checklist_file
+                    # Dữ liệu chỉ được lưu trong Session State.
                     # ==========================================================
 
                 else:
@@ -329,18 +318,30 @@ def main_app(credentials):
     from config import GDRIVE_DATASET_FOLDER_ID, GDRIVE_CHECKLIST_ID
     from config import download_dataset_folder_real
     
-    # Tải Folder Dataset (REAL) - Truyền CREDENTIALS vào tham số _credentials
+    # Tải Folder Dataset (REAL)
     dataset_ready = download_dataset_folder_real(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, credentials) 
-    # Tải Checklist (XLSX) - Truyền CREDENTIALS vào tham số _credentials
-    # KHÔNG CÓ CACHE: Luôn tải bản mới nhất từ Drive
-    checklist_df = load_checklist(GDRIVE_CHECKLIST_ID, CHECKLIST_FILENAME, credentials)
+    
+    # === LOGIC MỚI: Tải từ Drive chỉ khi chưa có trong Session State ===
+    if CHECKLIST_SESSION_KEY not in st.session_state:
+        # Tải Checklist (XLSX) từ Drive
+        checklist_df = load_checklist(GDRIVE_CHECKLIST_ID, CHECKLIST_FILENAME, credentials)
 
-    if checklist_df is not None:
-        st.session_state[CHECKLIST_SESSION_KEY] = checklist_df
+        if checklist_df is not None:
+            # Lần đầu tiên: Lưu DataFrame vào Session State
+            st.session_state[CHECKLIST_SESSION_KEY] = checklist_df
+            st.info("✅ Đã tải Checklist từ Drive vào Session State.")
+        else:
+            # Xử lý lỗi tải lần đầu
+            st.warning("⚠️ Lỗi tải hoặc đọc file Checklist. Vui lòng kiểm tra File ID và quyền truy cập bằng token.")
+            return
+
+    # Lấy DataFrame từ Session State (Sẽ giữ nguyên sau rerun)
+    checklist_df = st.session_state[CHECKLIST_SESSION_KEY]
+    # ===================================================================
         
     st.markdown("---")
 
-    # Khai báo Placeholder cho checklist ở vị trí an toàn (Khắc phục UnboundLocalError)
+    # Khai báo Placeholder cho checklist
     checklist_placeholder = st.empty()
     
     st.markdown("---") # Thêm vạch phân cách sau Placeholder
@@ -349,8 +350,9 @@ def main_app(credentials):
          st.warning("⚠️ Lỗi tải Dataset Folder. Vui lòng kiểm tra ID Drive Folder và quyền truy cập.")
          return
          
+    # Kiểm tra checklist_df (Lấy từ Session State)
     if checklist_df is None:
-         st.warning("⚠️ Lỗi tải hoặc đọc file Checklist. Vui lòng kiểm tra File ID và quyền truy cập bằng token.")
+         st.warning("⚠️ Checklist hiện tại không hợp lệ (Kiểm tra lỗi tải lần đầu).")
          return
 
     st.info(f"Checklist có {len(checklist_df)} người.")
@@ -439,7 +441,7 @@ def main_app(credentials):
                     * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
                     """)
                     
-                    # Cập nhật checklist VÀ GHI NGƯỢC LÊN DRIVE
+                    # Cập nhật checklist (Lưu vào Session State)
                     updated = update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
