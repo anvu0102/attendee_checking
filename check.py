@@ -656,6 +656,8 @@ def main_app(credentials):
                             # Cột 2: Ảnh gần nhất từ Dataset
                             with col2:
                                 st.image(best_match_identity_path, caption=f"Ảnh gần nhất từ Dataset (STT: {stt_closest})", use_column_width=True)
+                    else:
+                        st.info("ℹ️ **Không thể tìm thấy khuôn mặt gần nhất trong Dataset** để thực hiện so sánh chi tiết. Vui lòng kiểm tra chất lượng ảnh hoặc dataset.")
                     
                     # --- KHÔNG CÓ LOGIC RERUN TỰ ĐỘNG THEO YÊU CẦU CỦA USER ---
                     
