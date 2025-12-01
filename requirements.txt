@@ -10,3 +10,5 @@ pandas-datareader
 openpyxl
 xlsxwriter
 tabulate
+opencv-python
+Pillow
