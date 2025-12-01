@@ -105,7 +105,7 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
             db_path=dataset_folder, 
             model_name="ArcFace",
             distance_metric="cosine",
-            enforce_detection=False, 
+            enforce_detection=True, 
             detector_backend=DETECTOR_BACKEND 
             # KHÔNG CẦN CẮT NỮA VÌ ẢNH ĐÃ ĐƯỢC CẮT BÊN NGOÀI
         )
