@@ -26,7 +26,7 @@ CASCADE_FILENAME = 'haarcascade_frontalface_default.xml'
 
 # Vui lòng thay thế chuỗi này bằng File ID của file ZIP dataset công khai của bạn.
 # VD: GDRIVE_FILE_ID = "1a2b3c4d5e6f7g8h9i0j"
-GDRIVE_FILE_ID = "YOUR_GDRIVE_FILE_ID_HERE" 
+GDRIVE_FILE_ID = "1qX4I983WrBYMWdQals3g_ijbeepf8BtG" 
 ZIP_FILENAME = "dataset_archive.zip" 
 DATASET_FOLDER = "dataset" 
 # Sử dụng detector_backend="opencv" để tránh lỗi TypeError/Keras/TensorFlow
