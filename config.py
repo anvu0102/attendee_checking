@@ -110,7 +110,7 @@ def download_file_from_gdrive(file_id, output_filename, _credentials):
 def download_dataset_folder_real(folder_id, target_folder, _credentials):
     """ Tải toàn bộ nội dung folder Drive vào thư mục local. """
     if os.path.isdir(target_folder) and len(os.listdir(target_folder)) > 0:
-        st.success(f"Dataset folder is ready at '{target_folder}'. Download skipped.")
+        # st.success(f"✅ Dataset folder is ready at '{target_folder}'. Download skipped.")
         return True
 
     if not os.path.exists(target_folder):
@@ -210,7 +210,7 @@ def upload_to_gdrive_real(file_path, drive_folder_id, drive_filename, _credentia
                 fields='id'
             ).execute()
 
-        st.success(f"✅ **Upload Thành Công:** File '{drive_filename}' đã được lưu.")
+        # st.success(f"✅ **Upload Thành Công:** File '{drive_filename}' đã được lưu.")
         st.info(f"Đã lưu vào Drive Folder ID: **{drive_folder_id}**.")
         
         # Xóa cache của hàm list_files_in_gdrive_folder để dữ liệu mới được cập nhật
