@@ -13,7 +13,7 @@ import pandas as pd
 from deepface import DeepFace
 import requests
 import re 
-import time # <<< ĐÃ THÊM THƯ VIỆN TIME
+import time
 
 # THƯ VIỆN BỔ SUNG CHO GOOGLE DRIVE API
 from googleapiclient.discovery import build
@@ -184,8 +184,6 @@ def get_next_new_data_stt(_credentials):
     # Trả về số thứ tự tiếp theo
     return max_stt + 1
 
-# *** ĐÃ XÓA HÀM write_back_checklist_to_gdrive ***
-
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
     """
@@ -193,9 +191,10 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
     """
     if CHECKLIST_SESSION_KEY not in st.session_state:
         st.error("Lỗi: Không tìm thấy DataFrame checklist trong Session State.")
-        return
+        return False # Trả về False nếu lỗi
 
     df = st.session_state[CHECKLIST_SESSION_KEY]
+    updated = False # Biến cờ cho biết DF có được cập nhật không
     
     # 1. Cập nhật Checklist (Đánh 'X')
     if stt_match is not None:
@@ -206,10 +205,11 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             row_index = df[df[stt_col].astype(str).str.contains(stt_match, regex=False)].index
             
             if not row_index.empty:
-                # Kiểm tra nếu chưa điểm danh thì mới cập nhật (NGĂN TRÙNG LẶP)
+                # Kiểm tra nếu chưa điểm danh thì mới cập nhật
                 if df.loc[row_index[0], session_name] != 'X':
                     df.loc[row_index[0], session_name] = 'X'
                     st.session_state[CHECKLIST_SESSION_KEY] = df 
+                    updated = True # Đánh dấu đã cập nhật
                     
                     st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
                     
@@ -252,6 +252,31 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
         finally:
             if os.path.exists(TEMP_UPLOAD_PATH):
                 os.remove(TEMP_UPLOAD_PATH)
+                
+    return updated # Trả về cờ cập nhật
+
+
+# --- HÀM MỚI: CẬP NHẬT PLACEHOLDER CHECKLIST ---
+def update_checklist_display(checklist_placeholder, current_df):
+    """Cập nhật nội dung của placeholder checklist."""
+    with checklist_placeholder.container():
+        st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session) - ĐÃ CẬP NHẬT")
+        st.dataframe(current_df)
+        
+        # Tạo file Excel trong bộ nhớ (sử dụng io.BytesIO)
+        output = io.BytesIO()
+        current_df.to_excel(output, index=False, sheet_name='Checklist_Cap_Nhat')
+        excel_data = output.getvalue()
+        
+        # Hiển thị nút tải về
+        st.download_button(
+            label="⬇️ Tải file Excel Checklist đã cập nhật",
+            data=excel_data,
+            file_name="Checklist_DiemDanh_CapNhat.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Tải về file Excel (XLSX) chứa dữ liệu điểm danh mới nhất trong phiên làm việc hiện tại."
+        )
+# -----------------------------------------------
 
 
 # ----------------------------------------------------------------------
@@ -369,10 +394,6 @@ def main_app(credentials):
 
                 st.markdown("---")
                 st.subheader("💡 Kết quả Điểm danh")
-
-                # #Test
-                # stt_match = "2"
-                # distance = 0.01
                 
                 if stt_match and distance is not None: # Đảm bảo cả stt_match và distance đều có giá trị
                     st.balloons()
@@ -381,16 +402,23 @@ def main_app(credentials):
                     * **STT trùng khớp:** **{stt_match}**
                     * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
                     """)
-                    # Cập nhật checklist (KHÔNG Ghi ngược lên Drive, chỉ cập nhật session state)
-                    update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
+                    
+                    # Cập nhật checklist VÀ NHẬN CỜ CẬP NHẬT
+                    updated = update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
+                    
+                    # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
+                    if updated and CHECKLIST_SESSION_KEY in st.session_state:
+                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức
+                         update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
+                    # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
                     time.sleep(5) # Đợi 5 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
-                    st.rerun() # Buộc rerun (Sửa từ experimental_rerun)
+                    st.rerun() # Buộc rerun
                     # --------------------------------------
-                    return # Thêm return để thoát hàm, ngăn lỗi trạng thái
+                    return 
                     
                 elif face_detected and num_faces == 1:
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
@@ -407,24 +435,10 @@ def main_app(credentials):
             # --- End result_placeholder.container() ---
             
     st.markdown("---")
-    st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session)")
+    
+    # 4. TRẠNG THÁI CHECKLIST HIỆN TẠI (Sử dụng Placeholder)
+    checklist_placeholder = st.empty()
+    
+    # Hiển thị trạng thái checklist lần đầu (hoặc nếu không có ảnh mới)
     if CHECKLIST_SESSION_KEY in st.session_state:
-        current_df = st.session_state[CHECKLIST_SESSION_KEY]
-        st.dataframe(current_df)
-        
-        # --- BỔ SUNG NÚT TẢI VỀ FILE EXCEL ---
-        # 1. Tạo file Excel trong bộ nhớ (sử dụng io.BytesIO)
-        output = io.BytesIO()
-        # Lưu DataFrame vào buffer, bỏ index
-        current_df.to_excel(output, index=False, sheet_name='Checklist_Cap_Nhat')
-        excel_data = output.getvalue()
-        
-        # 2. Hiển thị nút tải về
-        st.download_button(
-            label="⬇️ Tải file Excel Checklist đã cập nhật",
-            data=excel_data,
-            file_name="Checklist_DiemDanh_CapNhat.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Tải về file Excel (XLSX) chứa dữ liệu điểm danh mới nhất trong phiên làm việc hiện tại."
-        )
-        # --------------------------------------
+        update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
