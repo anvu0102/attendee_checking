@@ -184,6 +184,26 @@ def get_next_new_data_stt(_credentials):
     # Trả về số thứ tự tiếp theo
     return max_stt + 1
 
+# --- HÀM MỚI: GHI ĐÈ FILE CHECKLIST LÊN DRIVE BẰNG ID ---
+def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
+    """ Tải file local lên Drive, ghi đè file có ID tương ứng. """
+    try:
+        # Xây dựng Drive Service Object
+        service = build('drive', 'v3', credentials=_credentials)
+        
+        # Tạo đối tượng MediaFileUpload
+        media = MediaFileUpload(local_path,
+                                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                resumable=True)
+
+        # Cập nhật file trên Drive bằng file_id
+        service.files().update(fileId=file_id,
+                               media_body=media).execute()
+        return True
+    except Exception as e:
+        st.error(f"❌ Lỗi Drive API khi cập nhật checklist: {e}")
+        return False
+        
 # --- LOGIC GHI DỮ LIỆU VÀ LƯU ẢNH MỚI (ĐÃ CẬP NHẬT) ---
 def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _credentials):
     """
@@ -213,8 +233,19 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
                     
                     st.success(f"✅ **Đã cập nhật điểm danh** cho STT **{df.loc[row_index[0], stt_col]}** vào cột **{session_name}**.")
                     
-                    # *** ĐÃ XÓA LOGIC GỌI HÀM GHI NGƯỢC LÊN DRIVE ***
-                    
+                    # === BỔ SUNG LOGIC GHI NGƯỢC LÊN DRIVE ĐỂ LƯU TRẠNG THÁI ===
+                    try:
+                        # 1. Lưu DataFrame vào file local (ghi đè file đã tải)
+                        df.to_excel(CHECKLIST_FILENAME, index=False)
+                        
+                        # 2. Upload file local lên Drive (OVERWRITE)
+                        overwrite_gdrive_checklist_file(CHECKLIST_FILENAME, GDRIVE_CHECKLIST_ID, _credentials)
+                        st.info("🔄 Đã lưu trạng thái checklist mới lên Google Drive.")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Lỗi khi ghi lại checklist lên Drive: {e}")
+                    # ==========================================================
+
                 else:
                     st.info(f"Người có STT **{df.loc[row_index[0], stt_col]}** đã được điểm danh trong **{session_name}**.")
                 
@@ -408,17 +439,17 @@ def main_app(credentials):
                     * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
                     """)
                     
-                    # Cập nhật checklist VÀ NHẬN CỜ CẬP NHẬT
+                    # Cập nhật checklist VÀ GHI NGƯỢC LÊN DRIVE
                     updated = update_checklist_and_save_new_data(stt_match, selected_session, None, credentials)
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
-                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức bằng Placeholder đã khai báo ở trên
+                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(3) # Đợi 3 giây
+                    time.sleep(5) # Đợi 5 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
                     st.rerun() # Buộc rerun
@@ -440,7 +471,5 @@ def main_app(credentials):
             # --- End result_placeholder.container() ---
             
     # 4. HIỂN THỊ TRẠNG THÁI CHECKLIST BAN ĐẦU HOẶC SAU KHI RERUN
-    # (Sử dụng Placeholder đã khai báo ở trên)
-    # Lần chạy đầu tiên/Sau Rerun, đoạn này đảm bảo bảng được vẽ lại với dữ liệu mới nhất.
     if CHECKLIST_SESSION_KEY in st.session_state:
         update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
