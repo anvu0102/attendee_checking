@@ -256,19 +256,17 @@ def overwrite_gdrive_checklist_file(local_path, file_id, _credentials):
     # Hàm này không được sử dụng
     pass
 
-# --- HÀM HỖ TRỢ HIỂN THỊ ẢNH DATASET (ĐÃ THÊM) ---
+# --- HÀM HỖ TRỢ HIỂN THỊ ẢNH DATASET (ĐÃ CẬP NHẬT) ---
 def load_dataset_image(stt_match, dataset_folder):
     """
     Tìm và trả về đường dẫn của ảnh dataset tương ứng với STT match đầu tiên.
     Đã cập nhật regex để hỗ trợ cả định dạng STT.jpg và STT_*.jpg.
     """
-    # Biểu thức chính quy mới:
-    # ^{stt_match}\.jpe?g$   -> Khớp STT.jpg
-    # |                     -> HOẶC
-    # ^{stt_match}_.*\.jpe?g$ -> Khớp STT_*.jpg
     
     # Sử dụng hai pattern riêng biệt để linh hoạt hơn:
+    # 1. STT.jpg/jpeg (Ví dụ: c.jpg)
     pattern_simple = re.compile(rf'^{stt_match}\.jpe?g$', re.IGNORECASE)
+    # 2. STT_*.jpg/jpeg (Ví dụ: c_001.jpg)
     pattern_complex = re.compile(rf'^{stt_match}_.*\.jpe?g$', re.IGNORECASE)
     
     if os.path.isdir(dataset_folder):
@@ -582,6 +580,10 @@ def main_app(credentials):
                     st.balloons()
                     st.success(f"✅ **ĐIỂM DANH THÀNH CÔNG!**")
                     
+                    # --- HIỂN THỊ BEST SCORE (KHOẢNG CÁCH COSINE) ---
+                    st.markdown(f"**Best Match STT:** **{stt_match}** | **Khoảng cách (Cosine):** <span style='font-size: 1.2em; color: red;'>**`{distance:.4f}`**</span>", unsafe_allow_html=True)
+                    st.markdown("---")
+
                     # --- BỔ SUNG HIỂN THỊ ẢNH ĐÃ CẮT VÀ ẢNH DATASET TRÙNG KHỚP ---
                     dataset_image_path = load_dataset_image(stt_match, DATASET_FOLDER)
                     
@@ -601,11 +603,6 @@ def main_app(credentials):
                             st.warning("Không tìm thấy ảnh dataset để hiển thị.")
                     # -------------------------------------------------------------
                     
-                    st.markdown(f"""
-                    * **STT trùng khớp:** **{stt_match}**
-                    * **Độ tương đồng (Khoảng cách Cosine):** `{distance:.4f}`
-                    """)
-                    
                     # Cập nhật checklist VÀ LƯU ẢNH GỐC THÀNH CÔNG
                     # TRUYỀN BYTES CỦA ẢNH GỐC
                     updated = update_checklist_and_save_new_data(stt_match, selected_session, image_bytes_original, credentials)
@@ -617,7 +614,7 @@ def main_app(credentials):
                     # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(30) # Đợi 5 giây
+                    time.sleep(5) # Đợi 5 giây
                     
                     # Xóa file tạm sau khi đã hiển thị xong (trước khi rerun)
                     if TEMP_IMAGE_PATH and os.path.exists(TEMP_IMAGE_PATH):
