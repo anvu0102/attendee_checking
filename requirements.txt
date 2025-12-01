@@ -7,4 +7,5 @@ deepface==0.0.81
 Pillow==10.2.0
 tf-keras
 tensorflow==2.12
+openpyxl
 
