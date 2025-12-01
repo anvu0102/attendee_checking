@@ -56,63 +56,50 @@ CHECKLIST_SESSION_KEY = "attendance_df"
 DETECTOR_BACKEND = "opencv"
 
 
-# --- 1. HÀM XÁC THỰC OAUTH (REAL) ---
-@st.cache_resource(show_spinner="Đang thực hiện quy trình OAuth để lấy Access Token...")
+# --- 1. HÀM XÁC THỰC OAUTH (REAL - Non-interactive cho Streamlit Cloud) ---
+@st.cache_resource(show_spinner="Đang tải và làm mới Access Token từ st.secrets...")
 def get_valid_access_token_real(client_id, client_secret):
     """ 
-    THỰC TẾ: Thực hiện luồng OAuth 2.0 để lấy và làm mới token (yêu cầu file client_secrets.json).
-    CHÚ Ý: Đây là luồng OAuth Desktop/Installed App. Để dùng trên Streamlit Cloud,
-    cần thay thế bằng một luồng web app hoặc sử dụng các khóa đã được xác thực trước.
+    THỰC TẾ: Lấy Credentials từ st.secrets (dạng non-interactive) và làm mới token.
+    Yêu cầu phải có 'GDRIVE_REFRESH_TOKEN' trong st.secrets.
     """
-    if "token" not in st.session_state:
-        st.session_state.token = None
-
-    if st.session_state.token and st.session_state.token.expired and st.session_state.token.refresh_token:
-        # Nếu Token hết hạn và có Refresh Token, làm mới
-        st.info("Đang làm mới Access Token...")
-        st.session_state.token.refresh(Request())
-        st.success("✅ Đã làm mới Access Token.")
-        return st.session_state.token
-    elif st.session_state.token and not st.session_state.token.expired:
-        # Nếu Token còn hạn
-        st.success("✅ Access Token còn hiệu lực.")
-        return st.session_state.token
     
-    # ⚠️ Đây là phần quan trọng: Luồng OAuth Tương tác (chỉ chạy tốt trên môi trường local)
+    # ⚠️ Loại bỏ luồng run_local_server và thay bằng luồng Refresh Token
+    
     try:
-        # Tạo file credentials.json ảo từ st.secrets để thực hiện OAuth flow
-        CRED_JSON = {
-            "installed": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob", "http://localhost"]
-            }
-        }
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_creds_file:
-            import json
-            json.dump(CRED_JSON, temp_creds_file)
-            CREDENTIALS_FILE = temp_creds_file.name
-        
-        flow = InstalledAppFlow.from_client_secrets_file(
-            CREDENTIALS_FILE, SCOPES
-        )
-        
-        # Chạy luồng OAuth. Trên local sẽ mở trình duyệt, trên Cloud sẽ cần xử lý khác
-        st.warning("Vui lòng hoàn thành quá trình xác thực Google OAuth trong cửa sổ mới/terminal.")
-        creds = flow.run_local_server(port=0) 
-        st.session_state.token = creds
-        
-        os.remove(CREDENTIALS_FILE)
-        st.success("✅ Xác thực Google thành công.")
-        return creds
-        
-    except Exception as e:
-        st.error(f"❌ Lỗi xác thực OAuth: {e}")
-        st.error("Vui lòng kiểm tra Client ID/Secret và đảm bảo ứng dụng của bạn đã được đăng ký.")
+        # Lấy Refresh Token từ st.secrets
+        refresh_token = st.secrets["GDRIVE_REFRESH_TOKEN"]
+    except KeyError:
+        st.error("❌ Lỗi cấu hình: Không tìm thấy khóa 'GDRIVE_REFRESH_TOKEN' trong st.secrets.")
+        st.info("Để chạy trên Streamlit Cloud, bạn phải thêm Refresh Token vào cấu hình secrets.toml.")
         return None
+    
+    # 1. Tạo đối tượng Credentials từ Refresh Token và Client Secret
+    creds = Credentials(
+        token=None,  # Bắt đầu không có access token
+        refresh_token=refresh_token,
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=client_id,
+        client_secret=client_secret,
+        scopes=SCOPES
+    )
+
+    # 2. Làm mới Token
+    if creds.expired and creds.refresh_token:
+        try:
+            st.info("Đang làm mới Access Token...")
+            creds.refresh(Request())
+            st.success("✅ Đã làm mới Access Token thành công.")
+        except Exception as e:
+            st.error(f"❌ Lỗi khi làm mới Access Token: {e}")
+            st.info("Gợi ý: Refresh Token có thể đã hết hạn hoặc bị thu hồi. Vui lòng kiểm tra lại token và quyền truy cập.")
+            return None
+    elif not creds.refresh_token:
+        st.error("❌ Lỗi: Credentials không có Refresh Token.")
+        return None
+        
+    st.success("✅ Access Token đã sẵn sàng.")
+    return creds
 
 # --- 2. HÀM TẢI FILE ĐƠN LẺ TỪ G-DRIVE (CẬP NHẬT) ---
 # Tải checklist XLSX
