@@ -394,7 +394,8 @@ def main_app(credentials):
                     st.session_state['camera_input_key'] += 1 
                     st.experimental_rerun() # Buộc rerun để reset camera input widget
                     # --------------------------------------
-                    
+                    return 
+
                 elif face_detected and num_faces == 1:
                     st.warning(f"⚠️ **Phát hiện 1 khuôn mặt, nhưng không khớp với dataset.**")
                     # Lưu ảnh mới (truyền image_bytes và credentials)
