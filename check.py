@@ -19,7 +19,7 @@ from googleapiclient.http import MediaFileUpload
 
 # Import hằng số và hàm từ config.py
 from config import (
-    HAAR_CASCADE_URL, CASCADE_FILENAME, 
+    HAAR_CASCADE_URL, CASCADE_CASCADE_FILENAME, 
     DATASET_FOLDER, CHECKLIST_FILENAME, CHECKLIST_SESSION_KEY, 
     DETECTOR_BACKEND, GDRIVE_CHECKLIST_ID, GDRIVE_NEW_DATA_FOLDER_ID,
     download_file_from_gdrive, upload_to_gdrive_real, list_files_in_gdrive_folder
@@ -231,6 +231,8 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
         
         # Tạo tên file theo định dạng B<buổi>_<counter>.jpg
         session_num = session_name.replace("Buổi ", "")
+        session_num = re.sub(r'[^0-9]', '', session_num) # Đảm bảo chỉ lấy số
+        
         drive_filename = f"B{session_num}_{next_counter}.jpg" 
         
         # --- TẠO FILE TẠM ĐỂ UPLOAD ---
