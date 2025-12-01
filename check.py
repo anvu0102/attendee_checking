@@ -205,7 +205,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
             row_index = df[df[stt_col].astype(str).str.contains(stt_match, regex=False)].index
             
             if not row_index.empty:
-                # Kiểm tra nếu chưa điểm danh thì mới cập nhật
+                # Kiểm tra nếu chưa điểm danh thì mới cập nhật (NGĂN TRÙNG LẶP)
                 if df.loc[row_index[0], session_name] != 'X':
                     df.loc[row_index[0], session_name] = 'X'
                     st.session_state[CHECKLIST_SESSION_KEY] = df 
@@ -260,7 +260,7 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
 def update_checklist_display(checklist_placeholder, current_df):
     """Cập nhật nội dung của placeholder checklist."""
     with checklist_placeholder.container():
-        st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session) - ĐÃ CẬP NHẬT")
+        st.subheader("📋 Trạng thái Checklist Hiện tại (Trong Session)")
         st.dataframe(current_df)
         
         # Tạo file Excel trong bộ nhớ (sử dụng io.BytesIO)
@@ -288,11 +288,11 @@ def main_app(credentials):
     Hàm chứa toàn bộ logic giao diện Streamlit.
     """
     
-    # === KHỞI TẠO KEY SESSION STATE NGAY TẠI ĐẦU HÀM main_app (Khắc phục KeyError) ===
+    # === KHỞI TẠO KEY SESSION STATE (Khắc phục KeyError) ===
     # Khởi tạo key cho camera input nếu chưa có
     if 'camera_input_key' not in st.session_state:
         st.session_state['camera_input_key'] = 0
-    # ==============================================================================
+    # =======================================================
 
     # 1. Tải Dataset & Checklist
     from config import GDRIVE_DATASET_FOLDER_ID, GDRIVE_CHECKLIST_ID
@@ -308,6 +308,11 @@ def main_app(credentials):
         st.session_state[CHECKLIST_SESSION_KEY] = checklist_df
         
     st.markdown("---")
+
+    # Khai báo Placeholder cho checklist ở vị trí an toàn (Khắc phục UnboundLocalError)
+    checklist_placeholder = st.empty()
+    
+    st.markdown("---") # Thêm vạch phân cách sau Placeholder
 
     if not dataset_ready:
          st.warning("⚠️ Lỗi tải Dataset Folder. Vui lòng kiểm tra ID Drive Folder và quyền truy cập.")
@@ -408,12 +413,12 @@ def main_app(credentials):
                     
                     # --- HIỂN THỊ CHECKLIST ĐÃ CẬP NHẬT TRƯỚC KHI RERUN ---
                     if updated and CHECKLIST_SESSION_KEY in st.session_state:
-                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức
+                         # Nếu có cập nhật, vẽ lại bảng ngay lập tức bằng Placeholder đã khai báo ở trên
                          update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
                     # ----------------------------------------------------
                     
                     # --- LOGIC TỰ ĐỘNG CLEAR SAU 5 GIÂY ---
-                    time.sleep(5) # Đợi 5 giây
+                    time.sleep(3) # Đợi 3 giây
                     # Tăng giá trị key để buộc Streamlit reset widget st.camera_input
                     st.session_state['camera_input_key'] += 1 
                     st.rerun() # Buộc rerun
@@ -434,11 +439,8 @@ def main_app(credentials):
                     
             # --- End result_placeholder.container() ---
             
-    st.markdown("---")
-    
-    # 4. TRẠNG THÁI CHECKLIST HIỆN TẠI (Sử dụng Placeholder)
-    checklist_placeholder = st.empty()
-    
-    # Hiển thị trạng thái checklist lần đầu (hoặc nếu không có ảnh mới)
+    # 4. HIỂN THỊ TRẠNG THÁI CHECKLIST BAN ĐẦU HOẶC SAU KHI RERUN
+    # (Sử dụng Placeholder đã khai báo ở trên)
+    # Lần chạy đầu tiên/Sau Rerun, đoạn này đảm bảo bảng được vẽ lại với dữ liệu mới nhất.
     if CHECKLIST_SESSION_KEY in st.session_state:
         update_checklist_display(checklist_placeholder, st.session_state[CHECKLIST_SESSION_KEY])
