@@ -11,8 +11,7 @@ openpyxl
 google-api-python-client
 google-auth-oauthlib
 google-auth-httplib2
-libgl1-mesa-glx
-libglib2.0-0
+
 
 
 
