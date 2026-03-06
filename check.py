@@ -73,7 +73,9 @@ def verify_face_against_dataset(target_image_path, dataset_folder):
         )
         if isinstance(df_list, list) and len(df_list) > 0 and not df_list[0].empty:
             best_match = df_list[0].iloc[0]
-            stt_match = os.path.splitext(os.path.basename(best_match['identity']))[0].split('_')[0]
+            # Lấy tên file để trích xuất STT
+            identity_path = best_match['identity']
+            stt_match = os.path.splitext(os.path.basename(identity_path))[0].split('_')[0]
             return stt_match, float(best_match['ArcFace_cosine'])
         return None, None
     except Exception: return None, None
@@ -112,7 +114,6 @@ def update_checklist_and_save_new_data(stt_match, session_name, image_bytes, _cr
         df.loc[row_index[0], session_name] = 'X'
         st.session_state[CHECKLIST_SESSION_KEY] = df
         
-        # Lưu bằng chứng vào folder Buổi (VD: B1, B2) trong NEW_DATA
         session_folder_name = session_name.replace("Buổi ", "B")
         target_folder_id = get_or_create_drive_folder(GDRIVE_NEW_DATA_FOLDER_ID, session_folder_name, _credentials)
         
@@ -131,7 +132,6 @@ def main_app(credentials):
     if 'camera_input_key' not in st.session_state:
         st.session_state['camera_input_key'] = 0
 
-    # Tải dataset về local để DeepFace làm việc
     from config import download_dataset_folder_real
     download_dataset_folder_real(GDRIVE_DATASET_FOLDER_ID, DATASET_FOLDER, credentials)
     
@@ -156,34 +156,40 @@ def main_app(credentials):
                 if face_detected and num_faces == 1:
                     stt_match, dist = verify_face_against_dataset(temp_path, DATASET_FOLDER)
                     
-                    # 1. NẾU KHỚP: Điểm danh bình thường
                     if stt_match:
-                        st.success(f"✅ Nhận diện: STT {stt_match} (Dist: {dist:.4f})")
+                        st.success(f"✅ Nhận diện thành công: STT {stt_match}")
                         update_checklist_and_save_new_data(stt_match, selected_session, image_bytes, credentials)
                         st.rerun()
                     
-                    # 2. NẾU KHÔNG KHỚP: Cho phép chọn tên và lưu vào DATASET
                     else:
-                        st.warning("⚠️ Không tìm thấy bạn trong Dataset. Vui lòng chọn tên để đăng ký dữ liệu gốc.")
+                        st.warning("⚠️ Không tìm thấy bạn trong Dataset. Vui lòng chọn tên để đăng ký.")
                         user_options = df.apply(lambda x: f"{x[df.columns[0]]} - {x[df.columns[1]]}", axis=1).tolist()
                         selected_user = st.selectbox("Tên của bạn là:", ["--- Chọn tên ---"] + user_options)
                         
                         if selected_user != "--- Chọn tên ---":
                             chosen_stt = selected_user.split(" - ")[0]
                             if st.button(f"Xác nhận: Tôi là STT {chosen_stt}"):
-                                # A. LƯU VÀO DATASET (CƠ CHẾ MỚI): Để buổi sau tự nhận diện được
-                                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_ds:
-                                    img_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-                                    img_pil.save(tmp_ds.name, format='JPEG')
-                                    # Upload thẳng vào folder Dataset chính trên Drive
-                                    upload_to_gdrive_real(tmp_ds.name, GDRIVE_DATASET_FOLDER_ID, f"{chosen_stt}.jpg", credentials)
+                                # A. LƯU VÀO DATASET LOCAL (Để nhận diện được ngay lập tức)
+                                if not os.path.exists(DATASET_FOLDER):
+                                    os.makedirs(DATASET_FOLDER)
                                 
-                                # B. ĐIỂM DANH: Lưu bằng chứng vào NEW_DATA/Buổi_X và cập nhật Excel
+                                local_path = os.path.join(DATASET_FOLDER, f"{chosen_stt}.jpg")
+                                img_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+                                img_pil.save(local_path, format='JPEG')
+                                
+                                # B. XÓA CACHE DEEPFACE (QUAN TRỌNG): Để DeepFace quét lại ảnh mới
+                                pkl_path = os.path.join(DATASET_FOLDER, "representations_arcface.pkl")
+                                if os.path.exists(pkl_path):
+                                    os.remove(pkl_path)
+                                
+                                # C. UPLOAD LÊN DRIVE (Để lưu trữ vĩnh viễn)
+                                upload_to_gdrive_real(local_path, GDRIVE_DATASET_FOLDER_ID, f"{chosen_stt}.jpg", credentials)
+                                
+                                # D. ĐIỂM DANH
                                 update_checklist_and_save_new_data(chosen_stt, selected_session, image_bytes, credentials)
                                 
-                                st.success("Đã đăng ký dữ liệu gốc và điểm danh thành công!")
-                                os.remove(tmp_ds.name)
-                                time.sleep(2)
+                                st.success(f"Đã đăng ký khuôn mặt cho STT {chosen_stt} và điểm danh!")
+                                time.sleep(1)
                                 st.session_state['camera_input_key'] += 1
                                 st.rerun()
                 elif num_faces > 1: st.error("Chỉ chụp 1 người.")
