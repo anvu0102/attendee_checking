@@ -1,7 +1,5 @@
-libglib2.0-0
+libgtk2.0-dev
 libgl1
 libsm6
 libxext6
 libxrender1
-libgl1-mesa-glx
-libgtk2.0-dev
